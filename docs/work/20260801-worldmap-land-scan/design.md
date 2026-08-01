@@ -1,8 +1,8 @@
 # SW 설계 — 월드맵 토지정보 추출기
 
 - 작업 ID: 20260801-worldmap-land-scan
-- 기준선: v0.3 (초안, 미승인 — 도적 감지 기능 제외 반영)
-- 대상 요구사항: [requirements.md](requirements.md) v0.3
+- 기준선: **v1 (승인됨)** — 승인일 2026-08-01
+- 대상 요구사항: [requirements.md](requirements.md) v1
 - 작성일: 2026-08-01
 
 ## 1. 설계 개요
