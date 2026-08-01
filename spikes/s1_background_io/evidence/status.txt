@@ -1,0 +1,6 @@
+elevated=True
+SetWindowPos rc=1 err=0
+peek saved; waiting for go.txt
+click (899,588) rc=1,1,1 err=0
+after saved; DONE
+exit phase=done

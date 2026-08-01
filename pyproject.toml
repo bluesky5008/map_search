@@ -1,0 +1,13 @@
+[project]
+name = "mapscan"
+version = "0.1.0"
+description = "삼국지-전략판 월드맵 토지정보 추출기"
+requires-python = ">=3.12"
+dependencies = [
+    "pillow",
+    "numpy",
+    "windows-capture",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
