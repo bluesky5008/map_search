@@ -1,4 +1,4 @@
-param([int]$X, [int]$Y, [int]$W, [int]$H, [int]$Secs = 10, [string]$Proof = "")
+﻿param([int]$X, [int]$Y, [int]$W, [int]$H, [int]$Secs = 10, [string]$Proof = "")
 
 # Topmost solid overlay to occlude the game window during S-1 tests.
 Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr v);'

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 mapscan을 관리자 권한으로 실행한다 (게임이 elevated인 환경에서 필요, ADR-002).
 
