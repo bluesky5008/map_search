@@ -1,0 +1,36 @@
+00:09:42 elevated=True
+00:09:42 SetWindowPos rc=1
+00:09:42 ready
+00:10:03 #1 cap s2_00_base.png -> cap s2_00_base.png ok
+00:10:28 #2 wheel -120 639 360 3 -> wheel -120x3 at (639,360) ok
+00:10:28 #3 sleep 0.8 -> sleep 0.8 ok
+00:10:29 #4 cap s2_01_out3.png -> cap s2_01_out3.png ok
+00:11:44 #5 wheel -120 639 360 5 -> wheel -120x5 at (639,360) ok
+00:11:45 #6 sleep 0.8 -> sleep 0.8 ok
+00:11:45 #7 cap s2_02_out8.png -> cap s2_02_out8.png ok
+00:12:37 #8 wheel 120 639 360 8 -> wheel 120x8 at (639,360) ok
+00:12:37 #9 sleep 1 -> sleep 1 ok
+00:12:38 #10 cap s2_03_back_near.png -> cap s2_03_back_near.png ok
+00:13:30 #11 click 949 398 -> click (949,398) ok
+00:13:30 #12 sleep 0.8 -> sleep 0.8 ok
+00:13:31 #13 cap s2_pop_trees.png -> cap s2_pop_trees.png ok
+00:14:11 #14 click 829 508 -> click (829,508) ok
+00:14:11 #15 sleep 0.8 -> sleep 0.8 ok
+00:14:12 #16 cap s2_pop_rocks.png -> cap s2_pop_rocks.png ok
+00:14:48 #17 click 249 578 -> click (249,578) ok
+00:14:48 #18 sleep 0.8 -> sleep 0.8 ok
+00:14:49 #19 cap s2_pop_plain.png -> cap s2_pop_plain.png ok
+00:15:41 #20 click 639 168 -> click (639,168) ok
+00:15:41 #21 sleep 0.8 -> sleep 0.8 ok
+00:15:42 #22 cap s2_pop_goldfield.png -> cap s2_pop_goldfield.png ok
+00:16:43 #23 wheel -120 639 360 1 -> wheel -120x1 at (639,360) ok
+00:16:43 #24 sleep 0.8 -> sleep 0.8 ok
+00:16:44 #25 cap s2_zoom_m1.png -> cap s2_zoom_m1.png ok
+00:16:44 #26 wheel -120 639 360 1 -> wheel -120x1 at (639,360) ok
+00:16:44 #27 sleep 0.8 -> sleep 0.8 ok
+00:16:45 #28 cap s2_zoom_m2.png -> cap s2_zoom_m2.png ok
+00:18:02 #29 wheel 120 639 360 2 -> wheel 120x2 at (639,360) ok
+00:18:03 #30 sleep 0.5 -> sleep 0.5 ok
+00:18:03 #31 cap s2_final_state.png -> cap s2_final_state.png ok
+00:18:03 #32 quit -> quit
+00:18:03 exit

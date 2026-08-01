@@ -1,0 +1,26 @@
+00:41:08 elevated=True
+00:41:08 z-raise rc=1; win=(2779,69,1294,758) client=(1278,719)
+00:41:08 ready
+00:41:21 #1 setrect 2560 0 2560 696 -> setrect rc=1 -> win=(2560,0,2560,696) client=(2544,657)
+00:41:21 #2 sleep 2.5 -> sleep 2.5 ok
+00:41:52 #3 wheel -120 1270 330 1 -> wheel -120x1 at (1270,330) ok
+00:41:52 #4 sleep 1.2 -> sleep 1.2 ok
+00:41:54 #5 wheel -120 1270 330 1 -> wheel -120x1 at (1270,330) ok
+00:41:54 #6 sleep 1.2 -> sleep 1.2 ok
+00:42:38 #7 wheel 120 1270 330 2 -> wheel 120x2 at (1270,330) ok
+00:42:38 #8 sleep 1.5 -> sleep 1.5 ok
+00:42:40 #9 click 700 350 -> click (700,350) ok
+00:42:40 #10 sleep 1 -> sleep 1 ok
+00:42:41 #11 click 2100 350 -> click (2100,350) ok
+00:42:41 #12 sleep 1 -> sleep 1 ok
+00:43:29 #13 setrect 0 0 5120 696 -> setrect rc=1 -> win=(0,0,5120,696) client=(5104,657)
+00:43:29 #14 sleep 2.5 -> sleep 2.5 ok
+00:43:32 #15 click 1400 350 -> click (1400,350) ok
+00:43:32 #16 sleep 1 -> sleep 1 ok
+00:43:33 #17 click 4200 350 -> click (4200,350) ok
+00:43:33 #18 sleep 1 -> sleep 1 ok
+00:44:18 #19 setrect 2560 0 2560 696 -> setrect rc=1 -> win=(2560,0,2560,696) client=(2544,657)
+00:44:18 #20 sleep 2 -> sleep 2 ok
+00:44:20 #21 rect -> win=(2560,0,2560,696) client=(2544,657)
+00:44:20 #22 quit -> quit
+00:44:21 exit

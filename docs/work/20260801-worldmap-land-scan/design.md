@@ -1,22 +1,25 @@
 # SW 설계 — 월드맵 토지정보 추출기
 
 - 작업 ID: 20260801-worldmap-land-scan
-- 기준선: **v1 (승인됨)** — 승인일 2026-08-01
-- 대상 요구사항: [requirements.md](requirements.md) v1
+- 기준선: **v2 (승인됨)** — 승인일 2026-08-02 ([DCR-001](changes/DCR-001-mode-a-zoom-limits.md))
+- 대상 요구사항: [requirements.md](requirements.md) v2
 - 작성일: 2026-08-01
 
 ## 1. 설계 개요
 
 화면 캡처 → 타일 인식 → 저장의 파이프라인을 갖는 단일 프로세스 Windows 데스크톱 도구.
 
-- 3개 스캔 모드(MODE-A/B/C)를 **전략 패턴**으로 수용하고, v1은 MODE-A(화면인식 전체 스캔)만 구현한다. 모드별 차이는 "어느 좌표를 방문하고, 방문 지점에서 무엇을 하는가"뿐이며 이동·캡처·인식·저장 서비스는 공유한다.
-- 캡처·입력은 인터페이스로 추상화하고 **백그라운드 구현(Windows Graphics Capture + PostMessage)을 기본**, 전면 구현(BitBlt/mss + SendInput)을 폴백으로 둔다(NFR-06, ADR-002).
+- 4개 스캔 모드(MODE-A1/A2/B/C)를 **전략 패턴**으로 수용하고, **v1은 MODE-A2(디테일 줌 전체 스캔)만 구현**한다(DCR-001). 모드별 차이는 "어느 좌표를 방문하고, 방문 지점에서 무엇을 하는가"뿐이며 이동·캡처·인식·저장 서비스는 공유한다.
+- 캡처·입력은 인터페이스로 추상화하고 **백그라운드 구현(Windows Graphics Capture + PostMessage)을 사용**한다(NFR-06, ADR-002 — S-1 스파이크 통과). 캡처 세션은 **HWND 기준으로 바인딩**한다.
+- 스캔 시작 시 창을 **넓고 낮은 스캔 크기(사분면)로 설정**하고 종료 시 복원한다(FR-12, ADR-005). 가시 타일 수가 종횡비에 비례하므로 스캔 소요가 약 1/3로 줄어든다.
 - 수집 데이터는 SQLite를 단일 진실 원천으로 기록하고 완료 시 CSV로 내보낸다(ADR-003).
+- 도구는 **관리자 권한으로 실행**해야 한다(게임이 elevated인 환경에서 UIPI가 입력·창 조작을 차단).
 
 ```text
 ┌────────────────────────── CLI / Config ──────────────────────────┐
 │  ScanController (모드 전략 선택·수명주기·체크포인트)                  │
-│   ├── FullSpriteScan (MODE-A, v1)                                │
+│   ├── DetailScan     (MODE-A2, v1)                               │
+│   ├── StrategicScan  (MODE-A1, 후속·스텁)                         │
 │   ├── HybridScan     (MODE-B, 후속·스텁)                          │
 │   └── RegionClickScan(MODE-C, 후속·스텁)                          │
 │        │ 공통 서비스                                               │
@@ -37,8 +40,8 @@
 |---|---|---|
 | CLI/Config | 모드·출력 경로·옵션 파싱, 설정 파일(캘리브레이션 값) 로드 | — |
 | ScanController | 스캔 수명주기(시작/재개/정지), 모드 전략 실행, 체크포인트 갱신, 진행률 보고 | 모든 서비스 |
-| WindowSession | 창 제목 "삼국지-전략판"으로 대상 창 탐색, 크기 1282x752 검증, 시작 시 캡처·입력 프로브(P-04) 수행 및 백그라운드/전면 모드 결정 | Win32 |
-| Capturer (ICapture) | 창 이미지 획득. `WgcCapture`(백그라운드, 기본) / `BitBltCapture`(전면 폴백) | WindowSession |
+| WindowSession | 대상 창 탐색(제목 + HWND 확정), 관리자 권한 점검, **스캔 창 크기 설정·종료 시 복원**(FR-12, ADR-005), 실제 클라이언트 크기 측정, 시작 시 캡처·입력 프로브 | Win32 |
+| Capturer (ICapture) | 창 이미지 획득. `WgcCapture`(**HWND 바인딩 필수** — 동일 제목 다중 창 대응) / `BitBltCapture`(전면 폴백) | WindowSession |
 | InputDriver (IInput) | 클릭·텍스트 입력·휠(줌). `PostMessageInput`(백그라운드, 기본) / `SendInput`(전면 폴백) | WindowSession |
 | Navigator | 지도 모드 진입, 좌표 입력·이동 실행, 줌 레벨 설정, 이동 후 화면 안정화 대기(연속 프레임 diff), 맵 크기 감지(9999 입력→클램프 값 판독) | InputDriver, Capturer, DigitReader |
 | GridMapper | 화면 픽셀 ↔ 맵 좌표 변환. 점프 후 선택 하이라이트 타일을 앵커로 그리드 원점 보정, 줌별 타일 픽셀 치수 상수 관리 | 캘리브레이션 설정 |
@@ -57,12 +60,14 @@
 ```sql
 CREATE TABLE scans (
   scan_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  mode         TEXT NOT NULL,              -- 'A' | 'B' | 'C'
+  mode         TEXT NOT NULL,              -- 'A1' | 'A2' | 'B' | 'C'
   started_at   TEXT NOT NULL,              -- ISO8601
   finished_at  TEXT,
   map_max_x    INTEGER,                    -- 감지된 맵 최대 좌표
   map_max_y    INTEGER,
-  zoom_level   TEXT,                       -- 'wide' | 'near'
+  zoom_level   TEXT,                       -- 'strategic' | 'detail'
+  client_w     INTEGER,                    -- 스캔 시 클라이언트 크기 (캘리브레이션 근거)
+  client_h     INTEGER,
   capture_mode TEXT,                       -- 'background' | 'foreground'
   checkpoint   INTEGER NOT NULL DEFAULT 0, -- 마지막 완료 방문 인덱스
   status       TEXT NOT NULL DEFAULT 'running'  -- running|paused|done|aborted
@@ -113,7 +118,7 @@ x,y,category,kind,level,occupancy,center_x,center_y,center_estimated,confidence,
 2. 좌표 입력란에 `9999`, `9999` 입력 → 입력란이 클램프한 값을 DigitReader로 판독 → `map_max_x/y` 확정.
 3. 판독 실패 시(P-03 실패) 사용자 수동 입력으로 대체.
 
-### 4.3 MODE-A 스캔 루프
+### 4.3 MODE-A2 스캔 루프 (v1)
 
 ```text
 plan = ScanPlanner.build(map_max, zoom, occlusion_zones)   # 뱀형 방문 좌표열
@@ -131,6 +136,7 @@ for visit in plan.resume_from(checkpoint):
 
 - **오클루전 처리(P-06):** 점프 직후 뜨는 선택 팝업·우측 부대 패널·상단 자원바 등 고정 UI 영역은 분류에서 제외하고, ScanPlanner가 인접 방문의 겹침으로 해당 좌표를 커버한다. 스캔 종료 시 미커버 좌표가 남으면 보충 방문을 생성한다(AC-05).
 - **2칸이상 건물(FR-07):** 연속한 동일 건물 스프라이트 영역을 하나의 건물로 묶고, 스프라이트 바운딩 중심을 `center_x/y`로 기록하되 `center_estimated=1`로 표기한다.
+- **줌 제어:** 스캔 창 크기에서는 디테일 줌의 최종 단계가 곧 최대 축소이며, 한 노치 더 축소하면 전략 뷰로 전환된다(S-2c). Navigator는 전환 여부를 화면 특징으로 판정하여 디테일 최종 단계에 정확히 맞춘다.
 - **지연 정책:** 조작 간 지연에 무작위 지터를 삽입한다(범위는 설정값, 기본 0.3~0.8s).
 
 ### 4.4 예외와 복구 (NFR-03)
@@ -149,7 +155,7 @@ for visit in plan.resume_from(checkpoint):
 
 ## 5. 품질 속성
 
-- **성능(NFR-02):** 광역 줌 기준 화면당 유효 타일 약 300~500개(오클루전 제외), 방문당 약 2.5초(이동+안정화+처리) 가정 시 2000×2000 맵 ≈ 6~9시간. 근접 줌 폴백 시 약 6배. 실측은 P-01/P-05 스파이크에서 확정.
+- **성능(NFR-02):** 스캔 창(클라이언트 2544x657, 종횡비 3.87)에서 디테일 줌 가시 타일 246개 실측, HUD 오클루전 제외 시 유효 약 185개. 방문당 2.5~4초 가정 시 1600² ≈ **10~15시간**(방문 약 13,900회). 방문당 소요는 미실측이므로 구현 초기에 확정한다.
 - **정확도(NFR-04):** 템플릿 매칭 임계값·색상 판별 기준은 제공 스크린샷 + 실캡처 표본으로 회귀 테스트를 구성해 99% 목표를 검증. 미달 분류는 `미상`으로 보수적으로 처리(오분류보다 미상이 안전).
 - **관측성(FR-11):** 콘솔 진행률(처리 좌표/전체, ETA) + 파일 로그(조작·감지 이벤트) + 증거 캡처 아카이브.
 - **보안·프라이버시:** 네트워크 통신 없음, 계정 정보 미저장, 산출물은 로컬 파일. 게임 메모리 접근·패킷 분석을 하지 않고 화면 표시 정보만 읽는다(A-05 위험 고지 유지).
@@ -181,47 +187,52 @@ map_search/
 |---|---|---|---|
 | FR-01 | Navigator, InputDriver | AC-01 | 실기 E2E: 지정 좌표 이동 후 화면 확인 |
 | FR-02 | Navigator.detect_map_size, DigitReader | AC-05 | 실기: 클램프 값 판독 = 수동 확인 값 |
-| FR-03 | Capturer, GridMapper, TileClassifier | AC-01, AC-02 | 스크린샷 회귀 + 실기 표본 수동 대조 |
+| FR-03b | Capturer, GridMapper, TileClassifier | AC-01, AC-02 | 스크린샷 회귀 + 실기 표본 수동 대조 |
+| FR-03a | StrategicScan(후속) | — | 후속 단계(MODE-A1)에서 검증 |
+| FR-12 | WindowSession(창 설정·복원) | AC-07 | 정상·중단·오류 3경로에서 복원 확인 |
 | FR-05 | TileClassifier(색상 판별) | AC-02 | 점령상태 5종 표본 대조 |
 | FR-07 | ScanPlanner(건물 병합) | AC-02 | 2칸 건물 표본 대조(추정 중심 표기 확인) |
 | FR-08 | TileClassifier(미상 처리) | AC-02 | 미정의 건물 셀 입력 시 미상 기록 확인 |
 | FR-09 | DataStore, CsvExporter | AC-05 | 산출물 존재·행 수·스키마 검사 |
 | FR-10 | 체크포인트+upsert | AC-03 | 강제 종료→재시작 E2E, 중복·누락 카운트 |
 | FR-11 | ProgressReporter, 로그 | — | 실행 로그 검사 |
-| NFR-02 | ScanPlanner·줌 전략 | — | 스파이크 실측 처리량 |
+| NFR-02 | ScanPlanner·줌 전략·스캔 창 크기 | — | 방문당 소요 실측 → 총 소요 산출 |
+| NFR-01 | WindowSession(크기 설정) | AC-07 | 스캔 창 종횡비 ≥3 확인 |
 | NFR-03 | Watchdog | — | 팝업 주입·창 가림 시나리오 테스트 |
 | NFR-04 | TileClassifier 회귀 테스트 | AC-02 | 표본 정확도 측정 |
 | NFR-06 | WgcCapture, PostMessageInput, 프로브 | AC-06 | P-04 스파이크 + 가림 상태 E2E |
 | FR-04 | PopupReader(후속 인터페이스) | — | 후속 단계(MODE-B/C)에서 검증 |
 
-## 9. 구현 착수 전 스파이크 (프로토타입 게이트)
+## 9. 스파이크 결과 (프로토타입 게이트)
 
-승인 후 wf-implement 1단계로 아래 스파이크를 수행하고, 결과에 따라 ADR-002 상태를 확정한다. 각 항목은 검증 가설·판정 기준이 requirements.md §13에 정의되어 있다.
-
-| 스파이크 | 검증 | 실패 시 경로 |
+| 스파이크 | 검증 | 결과 |
 |---|---|---|
-| S-1 (P-04) | WGC 가림 캡처 + PostMessage 클릭이 실제 클라이언트에서 동작 | 전면 제어 폴백(사용자 합의됨) |
-| S-2 (P-01, P-05) | 광역 줌에서 자원 종류 식별 + 그리드 캘리브레이션 | 근접 줌 순회(시간 6배) 또는 자원 종류 생략 결정 요청 |
-| S-3 (P-03) | 좌표 입력란 숫자 판독 | 맵 크기 수동 입력 |
-| S-4 (P-06) | 선택 팝업 오클루전을 겹침 방문으로 커버 | 팝업 닫기 조작 추가 |
+| S-1 (P-04) | WGC 가림 캡처 + PostMessage 클릭이 실제 클라이언트에서 동작 | **통과.** 단 도구 관리자 권한 필요, HWND 바인딩 필수 (`spikes/s1_background_io/findings.md`) |
+| S-2 (P-01, P-05) | 광역 줌에서 자원 종류 식별 + 그리드 캘리브레이션 | **P-01 실패** → DCR-001로 MODE-A1/A2 분리. 그리드 캘리브레이션은 실현 가능 |
+| S-2b/c | 창 크기·종횡비가 가시 타일 수에 미치는 영향 | **가시 타일 수 ∝ 종횡비** 확정 → ADR-005 (`spikes/s2_zoom_grid/findings.md`) |
+| S-3 (P-03) | 좌표 입력란 숫자 판독 | 미수행 — 구현 중 확인 |
+| S-4 (P-06) | 선택 팝업 오클루전을 겹침 방문으로 커버 | 미수행 — 구현 중 확인 |
 
-스파이크 코드는 `spikes/` 아래 격리하고 제품 코드에 포함하지 않는다. 판정 결과는 본 문서와 ADR-002에 기록한다.
+스파이크 코드는 `spikes/` 아래 격리하고 제품 코드에 포함하지 않는다.
 
 ## 10. 설계 결정 (ADR)
 
 | ADR | 제목 | 상태 |
 |---|---|---|
-| [ADR-001](decisions/ADR-001-tech-stack.md) | 구현 언어·스택: Python + OpenCV | 제안 |
-| [ADR-002](decisions/ADR-002-capture-input.md) | 캡처·입력: WGC+PostMessage 기본, 전면 폴백 | 제안(스파이크 게이트) |
-| [ADR-003](decisions/ADR-003-storage.md) | 저장: SQLite 원장 + CSV 내보내기 | 제안 |
-| [ADR-004](decisions/ADR-004-scan-mode-architecture.md) | 스캔 모드 전략 패턴 구조 | 제안 |
+| [ADR-001](decisions/ADR-001-tech-stack.md) | 구현 언어·스택: Python + OpenCV | 승인 (v1) |
+| [ADR-002](decisions/ADR-002-capture-input.md) | 캡처·입력: WGC+PostMessage 기본, 전면 폴백 | 승인 (v1, S-1 통과로 확정) |
+| [ADR-003](decisions/ADR-003-storage.md) | 저장: SQLite 원장 + CSV 내보내기 | 승인 (v1) |
+| [ADR-004](decisions/ADR-004-scan-mode-architecture.md) | 스캔 모드 전략 패턴 구조 | 승인 (v1) |
+| [ADR-005](decisions/ADR-005-window-aspect-ratio.md) | 창 크기·종횡비: 넓고 낮은 창으로 설정 | 승인 (v2) |
 
 ## 11. 위험 목록
 
 | ID | 위험 | 영향 | 대응 |
 |---|---|---|---|
-| R-01 | 백그라운드 캡처/입력이 이 클라이언트에서 미동작 | 백그라운드 요구(NFR-06) 미충족 | S-1 스파이크 조기 판정, 전면 폴백 합의 확보됨 |
-| R-02 | 광역 줌에서 자원 종류 식별 불가 | 스캔 시간 6배 또는 정보 축소 | S-2 판정 후 사용자 결정 요청(DCR) |
+| ~~R-01~~ | ~~백그라운드 캡처/입력 미동작~~ | — | **해소(S-1 통과).** 잔여: 도구 관리자 권한 실행 필요 |
+| ~~R-02~~ | ~~광역 줌에서 자원 종류 식별 불가~~ | — | **현실화 후 해소(DCR-001 승인, MODE-A2 채택)** |
+| R-07 | 스캔 창 크기 변경이 사용자 작업을 방해하거나 복원 실패 | 사용자 창 배치 손실 | 시작 시 안내, 정상·중단·오류 3경로 복원(AC-07), 복원 실패 로그 |
+| R-08 | 작은 타일(스텝 82px)에서 분류 정확도 저하 | NFR-04 미달 | 실제 스캔 창 크기에서 표본 검증(AC-02), 미달 시 종횡비 완화 |
 | R-03 | 게임 업데이트로 UI·스프라이트 변경 | 템플릿 전면 재캘리브레이션 | 템플릿 자산 분리·버전 표기, 검증 실패 시 조기 감지 |
 | R-04 | 자동화에 따른 계정 제재 가능성 | 계정 이용 제한 | 사용자 고지(A-05), 조작 최소화·지연 지터 |
 | R-05 | 스캔 중 맵 상태 변동 | 스냅샷 불일치 | 좌표별 수집 시각 기록(A-01) |

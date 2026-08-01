@@ -1,0 +1,33 @@
+00:24:27 elevated=True
+00:24:27 z-raise rc=1; win=(3788,596,1294,758) client=(1278,719)
+00:24:28 ready
+00:24:48 #1 cap b0_1278.png -> cap b0_1278.png ok frame=2560x696
+00:24:48 #2 resize 2560 1440 -> resize 2560x1440 rc=1 -> win=(3788,596,2560,1440) client=(2544,1401)
+00:24:48 #3 sleep 2 -> sleep 2 ok
+00:24:50 #4 cap b1_2560.png -> cap b1_2560.png ok frame=2560x696
+00:24:50 #5 rect -> win=(3788,596,2560,1440) client=(2544,1401)
+00:30:45 #6 wheel -120 1270 700 1 -> wheel -120x1 at (1270,700) ok
+00:30:45 #7 sleep 1 -> sleep 1 ok
+00:30:46 #8 wheel -120 1270 700 1 -> wheel -120x1 at (1270,700) ok
+00:30:46 #9 sleep 1 -> sleep 1 ok
+00:32:28 #10 wheel -120 1270 700 1 -> wheel -120x1 at (1270,700) ok
+00:32:29 #11 sleep 1.2 -> sleep 1.2 ok
+00:32:30 #12 wheel -120 1270 700 1 -> wheel -120x1 at (1270,700) ok
+00:32:30 #13 sleep 1.2 -> sleep 1.2 ok
+00:33:37 #14 click 500 800 -> click (500,800) ok
+00:33:37 #15 sleep 1 -> sleep 1 ok
+00:33:38 #16 click 1900 800 -> click (1900,800) ok
+00:33:38 #17 sleep 1 -> sleep 1 ok
+00:34:43 #18 resize 1294 758 -> resize 1294x758 rc=1 -> win=(2568,2,1294,758) client=(1278,719)
+00:34:43 #19 sleep 2 -> sleep 2 ok
+00:34:45 #20 wheel -120 639 400 4 -> wheel -120x4 at (639,400) ok
+00:34:45 #21 sleep 1.5 -> sleep 1.5 ok
+00:35:09 #22 wheel 120 639 400 1 -> wheel 120x1 at (639,400) ok
+00:35:09 #23 sleep 1.5 -> sleep 1.5 ok
+00:35:37 #24 wheel 120 639 400 1 -> wheel 120x1 at (639,400) ok
+00:35:38 #25 sleep 1.5 -> sleep 1.5 ok
+00:36:20 #26 wheel 120 639 400 3 -> wheel 120x3 at (639,400) ok
+00:36:20 #27 sleep 1.5 -> sleep 1.5 ok
+00:36:21 #28 rect -> win=(2568,2,1294,758) client=(1278,719)
+00:36:21 #29 quit -> quit
+00:36:21 exit
