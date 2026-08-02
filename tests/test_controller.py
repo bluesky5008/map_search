@@ -47,6 +47,9 @@ class _FakeClassifier:
     def classify(self, frame, px, py):
         return _FakeResult()
 
+    def detect_structures(self, frame, exclude=()):
+        return []
+
 
 class _FakeCapture:
     def __init__(self, frame):
@@ -176,6 +179,54 @@ class ReanchorFlushTest(unittest.TestCase):
         self.assertEqual(self.scanner._drop_buffer(buffer, self.covered), 2)
         self.assertFalse(self.covered.any())
         self.assertEqual(self.store.tile_count(self.scan_id), 0)
+
+    def test_flush_shifts_center_reference(self):
+        # FR-07: 건물 중심 참조도 셀과 같은 드리프트 보정을 받는다
+        rec = TileRecord(x=20, y=50, category="building2", kind="주성",
+                         center_x=21, center_y=50, center_estimated=True)
+        self.covered[50, 20] = True
+        n = self.scanner._flush(self.scan_id, [(3, [rec])], (-2, 5), 3,
+                                self.covered, (99, 99))
+        self.assertEqual(n, 1)
+        row = next(iter(self.store.iter_tiles(self.scan_id)))
+        self.assertEqual((row["x"], row["y"]), (18, 55))
+        self.assertEqual((row["center_x"], row["center_y"]), (19, 55))
+        self.assertEqual(row["center_estimated"], 1)
+
+
+class _FakeStructClassifier(_FakeClassifier):
+    """고정 검출 결과를 돌려주는 분류기 — 병합 로직만 시험한다(기하는 vision 몫)."""
+
+    def __init__(self, hit, members):
+        self.hit, self.members = hit, members
+
+    def detect_structures(self, frame, exclude=()):
+        return [self.hit]
+
+    def structure_members(self, hit, cells):
+        return self.members
+
+
+class StructureMergeTest(unittest.TestCase):
+    """FR-07: 검출된 건물의 멤버 셀이 종류·중심 참조를 공유한다."""
+
+    def test_members_share_center_and_kind(self):
+        from mapscan.vision import StructureHit
+        scanner = DetailScan.__new__(DetailScan)
+        hit = StructureHit("castle", "building2", "주성", 100.0, 100.0, 0.87)
+        scanner.clf = _FakeStructClassifier(hit, ([0, 1], 1))
+        cells = [(10, 20, 90.0, 95.0), (11, 20, 140.0, 120.0),
+                 (12, 20, 400.0, 95.0)]
+        recs = scanner._classified_records(None, cells, [])
+        for i in (0, 1):
+            self.assertEqual((recs[i].category, recs[i].kind),
+                             ("building2", "주성"))
+            self.assertEqual((recs[i].center_x, recs[i].center_y), (11, 20))
+            self.assertTrue(recs[i].center_estimated)
+            self.assertEqual(recs[i].confidence, 0.87)
+        # 비멤버는 셀별 분류를 유지한다
+        self.assertEqual(recs[2].kind, "목재")
+        self.assertIsNone(recs[2].center_x)
 
 
 class _ReanchorNav:

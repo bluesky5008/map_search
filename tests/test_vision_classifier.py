@@ -123,5 +123,56 @@ class FieldSampleRegressionTest(unittest.TestCase):
         self.assertEqual(r.occupancy, "enemy", msg=f"{r}")
 
 
+class StructureDetectionTest(unittest.TestCase):
+    """FR-07: 주성 성채 검출·멤버 병합 기하.
+
+    픽스처 tiles_occ_city.png는 도시 無名마산동탁 일대(기준좌표 진실
+    (1016,626), 확정 사실 36) — 성벽 다이아몬드 중심이 (140,88)이 되도록
+    register_templates.py가 잘랐다.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.clf = TileClassifier()
+        cls.fix = load_rgb(T14_WORK / "tiles_occ_city.png")
+
+    def test_detects_castle_at_wall_center(self):
+        hits = self.clf.detect_structures(self.fix)
+        self.assertEqual(len(hits), 1, msg=f"{hits}")
+        h = hits[0]
+        self.assertEqual((h.category, h.kind), ("building2", "주성"))
+        self.assertGreaterEqual(h.score, 0.9)
+        self.assertAlmostEqual(h.cx, 140, delta=3)
+        self.assertAlmostEqual(h.cy, 88, delta=3)
+
+    def test_exclude_rect_suppresses_hit(self):
+        hits = self.clf.detect_structures(self.fix,
+                                          exclude=((100, 60, 180, 120),))
+        self.assertEqual(hits, [])
+
+    def test_member_grouping_radius(self):
+        h = self.clf.detect_structures(self.fix)[0]
+        m = self.clf.basis.matrix()
+
+        def at(u, v, mx, my):
+            px, py = np.array([h.cx, h.cy]) + m @ (u, v)
+            return (mx, my, float(px), float(py))
+
+        cells = [at(0.1, 0.05, 1016, 626),   # 중심 셀
+                 at(0.5, 0.5, 1016, 627),    # 2x2 이웃 — 멤버
+                 at(1.5, 0.0, 1018, 626)]    # 반경(0.75타일) 밖
+        got = self.clf.structure_members(h, cells)
+        self.assertIsNotNone(got)
+        members, center = got
+        self.assertEqual(members, [0, 1])
+        self.assertEqual(center, 0)
+
+    def test_no_castle_on_unrelated_terrain(self):
+        # 임계 0.6의 여유 확인(무관 지형 차순위 ≤0.25 실측)
+        hits = self.clf.detect_structures(
+            load_rgb(T14_WORK / "tiles_occ_05_cell.png"))
+        self.assertEqual(hits, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,7 @@ vision 계층(TileClassifier, DigitReader)이 사용하는 템플릿. 게임 업
 | wood.png | resource, 목재 | `spikes/s2_zoom_grid/work3/snap_tr_base.png`의 타일 (1020,620) 중심 96x64 크롭. 같은 뷰의 `snap_click_R.png` 팝업 "Lv.1 목재 (1020,620)"으로 지상 진실 확정 |
 | iron_occ.png | resource, 철광 (점령형) | `spikes/t14_pan_tuning/work/tiles_occ_02_cell.png`(커밋 픽스처, 중심 120,80) 중심 96x64. 클릭 팝업 "Lv.5 철광 (1017,626)" 지상 진실. 추출: `register_templates.py` |
 | food_occ.png | resource, 식량 (점령형·밭) | `spikes/t14_pan_tuning/work/tiles_mine_01_cell.png` 중심 96x64. 클릭 팝업 "Lv.5 식량 (354,325)" 지상 진실. 동일 추출 |
+| castle.png | building2, 주성 (구조물 — FR-07 프레임 검출) | `spikes/t14_pan_tuning/work/tiles_occ_city.png`(커밋 픽스처) 내 성채 키프 120x70. 도시 無名마산동탁, 기준좌표 진실 (1016,626)(사실 36). 지면 중심 오프셋 (+60,+38)·임계 0.6은 `classifier.STRUCTURE_KINDS` 주석 참조. 다른 레벨·스킨 도시는 미검출(미상 유지) — 표본 확보 시 변형 추가 |
 
 **미확보(실기 수집 필요):** 석재·구리와 중립형 철광·식량(스캔 창 크기),
 1칸·2칸 건물 종류별, 점령형의 레벨·소유별 변형(현재 각 1표본 — Lv.8 철광은

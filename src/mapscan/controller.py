@@ -369,7 +369,12 @@ class DetailScan:
                 if covered[ny, nx]:
                     continue
                 covered[ny, nx] = True
-                out.append(replace(r, x=nx, y=ny) if (cx or cy) else r)
+                if cx or cy:
+                    # 건물 중심 참조(FR-07)도 같은 보정을 받는다
+                    r = replace(r, x=nx, y=ny) if r.center_x is None else \
+                        replace(r, x=nx, y=ny, center_x=r.center_x + cx,
+                                center_y=r.center_y + cy)
+                out.append(r)
         if out:
             self.store.upsert_tiles(scan_id, out)
         return len(out)
@@ -394,16 +399,45 @@ class DetailScan:
         """
         offset = tracker.offset
         exclude = list(ui.HUD_RECTS_CLIENT) + list(extra_exclude)
+        cells = [c for c in _band_cells(grid, tracker, frame.shape[1::-1],
+                                        offset, map_max, exclude)
+                 if not covered[c[1], c[0]]]
+        exclude_f = [(r[0] + offset[0], r[1] + offset[1],
+                      r[2] + offset[0], r[3] + offset[1]) for r in exclude]
+        records = self._classified_records(frame, cells, exclude_f)
+        for mx, my, _, _ in cells:
+            covered[my, mx] = True
+        return records
+
+    def _classified_records(self, frame, cells, exclude_frame) -> list[TileRecord]:
+        """셀별 분류 후 2칸이상 건물 멤버를 하나로 묶는다(FR-07, 설계 §4.3).
+
+        같은 배치에서 검출된 건물의 멤버 셀은 category/kind를 건물로 바꾸고
+        중심 셀 좌표를 center_x/y(추정 표기)로 공유한다. 점령상태는 셀별
+        판정을 유지한다. 이전 팬에서 이미 기록된 멤버 셀은 소급하지 않는다
+        (드리프트 보정 일관성 — 미검출분은 미상으로 남는 것이 안전, NFR-04).
+        """
         records = []
-        for mx, my, px, py in _band_cells(grid, tracker, frame.shape[1::-1],
-                                          offset, map_max, exclude):
-            if covered[my, mx]:
-                continue
+        for mx, my, px, py in cells:
             r = self.clf.classify(frame, px, py)
             records.append(TileRecord(x=mx, y=my, category=r.category,
                                       kind=r.kind, occupancy=r.occupancy,
                                       confidence=r.confidence))
-            covered[my, mx] = True
+        if not records:
+            return records
+        for hit in self.clf.detect_structures(frame, exclude=tuple(exclude_frame)):
+            got = self.clf.structure_members(hit, cells)
+            if got is None:
+                continue
+            members, center_i = got
+            cmx, cmy = cells[center_i][0], cells[center_i][1]
+            log.info("건물 %s(%s) 검출 score=%.2f 멤버 %d셀 중심(%d,%d)",
+                     hit.name, hit.kind, hit.score, len(members), cmx, cmy)
+            for i in members:
+                records[i] = replace(records[i], category=hit.category,
+                                     kind=hit.kind, center_x=cmx, center_y=cmy,
+                                     center_estimated=True,
+                                     confidence=hit.score)
         return records
 
     def _covered_bitmap(self, scan_id: int,
@@ -442,19 +476,14 @@ class DetailScan:
                 exclude = [(r[0] + offset[0], r[1] + offset[1],
                             r[2] + offset[0], r[3] + offset[1])
                            for r in list(ui.HUD_RECTS_CLIENT) + [popup]]
-                records = []
-                for cell in grid.visible_cells(frame.shape[1::-1],
-                                               exclude=exclude):
-                    if not (0 <= cell.mx <= map_max[0]
-                            and 0 <= cell.my <= map_max[1]):
-                        continue
-                    if covered[cell.my, cell.mx]:
-                        continue
-                    r = self.clf.classify(frame, cell.px, cell.py)
-                    records.append(TileRecord(
-                        x=cell.mx, y=cell.my, category=r.category, kind=r.kind,
-                        occupancy=r.occupancy, confidence=r.confidence))
-                    covered[cell.my, cell.mx] = True
+                cells = [(c.mx, c.my, c.px, c.py)
+                         for c in grid.visible_cells(frame.shape[1::-1],
+                                                     exclude=exclude)
+                         if 0 <= c.mx <= map_max[0] and 0 <= c.my <= map_max[1]
+                         and not covered[c.my, c.mx]]
+                records = self._classified_records(frame, cells, exclude)
+                for mx, my, _, _ in cells:
+                    covered[my, mx] = True
                 if records:
                     self.store.upsert_tiles(scan_id, records)
             except (NotDetailView, NotInMapMode, StabilizeTimeout,

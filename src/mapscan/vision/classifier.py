@@ -39,6 +39,18 @@ TEMPLATE_KINDS: dict[str, tuple[str, str]] = {
 MATCH_THRESHOLD = 0.5
 _MATCH_SLACK = 8  # 그리드 오차 허용 탐색 여유(px)
 
+# 2칸이상 건물(FR-07): 프레임 영역 검출용 구조물 템플릿.
+# 파일명 → (category, kind, 템플릿 원점→건물 지면 중심 오프셋 px).
+# castle: 주성 성채 내부 건물군 크롭 — 성벽 다이아몬드 중심이 원점+(60,38).
+# NCC 자기 매칭 1.0 vs 무관 지형 차순위 ≤0.25(양 프레임 실측) → 임계 0.6
+STRUCTURE_KINDS: dict[str, tuple[str, str, tuple[int, int]]] = {
+    "castle": ("building2", "주성", (60, 38)),
+}
+STRUCTURE_THRESHOLD = 0.6
+# 건물 지면 중심에서 이 타일 반경(u·v 각축) 안의 셀을 멤버로 묶는다.
+# 0.75는 2x2(멤버 |u|=|v|=0.5)를 포함하고 이웃 타일(|u|=1)은 제외한다
+STRUCTURE_MEMBER_RADIUS = 0.75
+
 # 경계 밴드 표본 위치: 변 안쪽 0.30~0.42, 변 방향 ±0.42.
 # 바깥쪽(>=0.44)은 이웃 타일 테두리가 번져 판별 불가(실측). 반대로 테두리
 # 인셋이 깊은 일부 점령 스프라이트(빈 밭 등)는 이 밴드를 벗어나 놓칠 수 있다
@@ -71,14 +83,29 @@ class TileResult:
     confidence: float
 
 
+@dataclass(frozen=True)
+class StructureHit:
+    """프레임에서 검출된 2칸이상 건물 하나 (FR-07)."""
+
+    name: str        # STRUCTURE_KINDS 키
+    category: str
+    kind: str
+    cx: float        # 건물 지면 중심 (프레임 px)
+    cy: float
+    score: float
+
+
 class TileClassifier:
     def __init__(self, basis: GridBasis = GridBasis(),
                  template_dir: Path | str = DEFAULT_DIR):
         self.basis = basis
         self._templates: dict[str, np.ndarray] = {}
+        self._structures: dict[str, np.ndarray] = {}
         for path in sorted(Path(template_dir).glob("*.png")):
             if path.stem in TEMPLATE_KINDS:
                 self._templates[path.stem] = np.asarray(Image.open(path).convert("RGB"))
+            elif path.stem in STRUCTURE_KINDS:
+                self._structures[path.stem] = np.asarray(Image.open(path).convert("RGB"))
 
     def classify(self, frame: np.ndarray, px: float, py: float) -> TileResult:
         """프레임(RGB)에서 중심 (px,py)인 타일 하나를 분류한다."""
@@ -97,6 +124,54 @@ class TileClassifier:
                 and lap_energy <= _PLAIN_MAX_LAPLACIAN):
             return TileResult("resource", "공터", occupancy, 0.6)
         return TileResult("unknown", "미상", occupancy, 0.2)
+
+    def detect_structures(self, frame: np.ndarray,
+                          exclude: tuple = ()) -> list[StructureHit]:
+        """프레임에서 2칸이상 건물 스프라이트를 검출한다 (FR-07).
+
+        exclude: 프레임 좌표 (x0,y0,x1,y1) 사각형 — 중심이 그 안이면 버린다
+        (HUD·팝업 위 오검출 방지). 반환 중심은 건물 지면(성벽 다이아몬드) 중심.
+        """
+        hits: list[StructureHit] = []
+        for name, tpl in self._structures.items():
+            if frame.shape[0] < tpl.shape[0] or frame.shape[1] < tpl.shape[1]:
+                continue
+            category, kind, (ox, oy) = STRUCTURE_KINDS[name]
+            res = cv2.matchTemplate(frame, tpl, cv2.TM_CCOEFF_NORMED)
+            th, tw = tpl.shape[:2]
+            for _ in range(20):  # 비최대 억제 탐욕 반복
+                _, score, _, (x, y) = cv2.minMaxLoc(res)
+                if score < STRUCTURE_THRESHOLD:
+                    break
+                res[max(0, y - th):y + th, max(0, x - tw):x + tw] = -1.0
+                cx, cy = x + ox, y + oy
+                if any(r[0] <= cx <= r[2] and r[1] <= cy <= r[3]
+                       for r in exclude):
+                    continue
+                hits.append(StructureHit(name, category, kind,
+                                         float(cx), float(cy),
+                                         round(float(score), 3)))
+        return hits
+
+    def structure_members(self, hit: StructureHit,
+                          cells: list) -> tuple[list[int], int] | None:
+        """hit의 멤버 셀 인덱스와 중심 셀 인덱스를 고른다.
+
+        cells: (mx, my, px, py) 목록. 멤버 = 건물 중심에서 u·v 각축
+        STRUCTURE_MEMBER_RADIUS 타일 이내. 멤버가 없으면 None.
+        """
+        inv = np.linalg.inv(self.basis.matrix())
+        members: list[int] = []
+        best, best_d = -1, float("inf")
+        for i, (_, _, px, py) in enumerate(cells):
+            u, v = inv @ (px - hit.cx, py - hit.cy)
+            if abs(u) > STRUCTURE_MEMBER_RADIUS or abs(v) > STRUCTURE_MEMBER_RADIUS:
+                continue
+            members.append(i)
+            d = u * u + v * v
+            if d < best_d:
+                best, best_d = i, d
+        return (members, best) if members else None
 
     # -- 내부 단계 ---------------------------------------------------------
 

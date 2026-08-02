@@ -35,6 +35,12 @@ TARGETS = [
 TPL_HALF = (48, 32)
 FIX_HALF = (120, 80)
 
+# FR-07 구조물: 주성 성채(도시 無名마산동탁, 기준좌표 진실 (1016,626) — 사실 36).
+# 키프(내부 건물군) 120x70 템플릿 + 성벽 다이아몬드 중심 오프셋 (+60,+38).
+# NCC 차순위 ≤0.25(무관 지형, probe 실측) — STRUCTURE_THRESHOLD 0.6의 근거.
+CASTLE_TPL = ("occ", (300, 330, 420, 400), "castle")
+CITY_FIX = ("occ", (220, 280, 560, 480), "tiles_occ_city")  # 검출 회귀 픽스처
+
 
 def crop(frame: np.ndarray, cx: int, cy: int, half: tuple[int, int]) -> np.ndarray:
     return frame[cy - half[1]:cy + half[1], cx - half[0]:cx + half[0]]
@@ -54,6 +60,11 @@ def main() -> int:
             Image.fromarray(crop(frame, cx, cy, TPL_HALF)).save(
                 TILES / f"{tpl_name}.png")
             print(f"템플릿 {tpl_name}.png <- {site}#{i} ({cx},{cy})")
+    site, (x0, y0, x1, y1), name = CASTLE_TPL
+    Image.fromarray(frames[site][y0:y1, x0:x1]).save(TILES / f"{name}.png")
+    print(f"구조물 템플릿 {name}.png <- {site} ({x0},{y0})-({x1},{y1})")
+    site, (x0, y0, x1, y1), name = CITY_FIX
+    Image.fromarray(frames[site][y0:y1, x0:x1]).save(WORK / f"{name}.png")
     # 재검증: 픽스처 중심 셀을 새 분류기로 판정
     clf = TileClassifier()
     for site, i, _, _ in TARGETS:
@@ -61,6 +72,8 @@ def main() -> int:
             WORK / f"tiles_{site}_{i:02d}_cell.png").convert("RGB"))
         r = clf.classify(fix, FIX_HALF[0], FIX_HALF[1])
         print(f"{site}#{i}: {r}")
+    fix = np.asarray(Image.open(WORK / f"{CITY_FIX[2]}.png").convert("RGB"))
+    print("도시 검출:", clf.detect_structures(fix))
     return 0
 
 
