@@ -1,12 +1,15 @@
-"""mapscan CLI — 현재는 win 계층 점검 명령만 제공한다(구현 진행 중)."""
+"""mapscan CLI — 현재는 win·vision 계층 점검 명령만 제공한다(구현 진행 중)."""
 
 from __future__ import annotations
 
 import argparse
+import collections
+import csv
 import logging
 import sys
 import time
 
+import numpy as np
 from PIL import Image
 
 from .win import PostMessageInput, WgcCapture, WindowSession, find_client_windows
@@ -53,6 +56,37 @@ def cmd_probe(args) -> int:
     return 0
 
 
+def cmd_classify(args) -> int:
+    """캡처 1장에서 가시 타일의 분류·점령상태를 산출한다 (vision 계층 점검)."""
+    from .vision import GridMapper, TileClassifier
+
+    frame = np.asarray(Image.open(args.image).convert("RGB"))
+    anchor_frame = frame if args.anchor_image is None else \
+        np.asarray(Image.open(args.anchor_image).convert("RGB"))
+    grid = GridMapper.from_frame(anchor_frame, tuple(args.anchor))
+    print(f"앵커: 맵 {grid.anchor_map} = 픽셀 "
+          f"({grid.anchor_px[0]:.0f},{grid.anchor_px[1]:.0f})")
+
+    clf = TileClassifier(grid.basis)
+    cells = grid.visible_cells(frame.shape[1::-1])
+    results = [(c, clf.classify(frame, c.px, c.py)) for c in cells]
+
+    counts = collections.Counter(
+        (r.category, r.kind, r.occupancy) for _, r in results)
+    print(f"가시 타일 {len(results)}개:")
+    for (cat, kind, occ), n in counts.most_common():
+        print(f"  {cat:10s} {kind:4s} {occ:8s} {n:4d}")
+
+    if args.csv:
+        with open(args.csv, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            w.writerow(["x", "y", "category", "kind", "occupancy", "confidence"])
+            for c, r in sorted(results, key=lambda t: (t[0].my, t[0].mx)):
+                w.writerow([c.mx, c.my, r.category, r.kind, r.occupancy, r.confidence])
+        print(f"CSV 저장: {args.csv}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # 콘솔 기본 코드페이지(cp949)로는 출력할 수 없는 문자가 있어 UTF-8로 고정한다.
     for stream in (sys.stdout, sys.stderr):
@@ -70,6 +104,15 @@ def main(argv: list[str] | None = None) -> int:
     probe.add_argument("--settle", type=float, default=2.0)
     probe.add_argument("--click", type=int, nargs=2, metavar=("X", "Y"))
     probe.set_defaults(func=cmd_probe)
+
+    classify = sub.add_parser("classify", help="캡처 1장 타일 분류(vision 점검)")
+    classify.add_argument("--image", required=True, help="분류할 캡처 PNG")
+    classify.add_argument("--anchor", type=int, nargs=2, required=True,
+                          metavar=("MX", "MY"), help="선택 하이라이트 타일의 맵 좌표")
+    classify.add_argument("--anchor-image",
+                          help="하이라이트가 있는 프레임(기본: --image)")
+    classify.add_argument("--csv", help="타일별 결과 CSV 저장 경로")
+    classify.set_defaults(func=cmd_classify)
 
     args = parser.parse_args(argv)
     return args.func(args)
