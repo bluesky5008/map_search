@@ -22,6 +22,15 @@ STRIPS = [
      (122, 132, 203, 162), "(1018,622)"),
 ]
 
+# 서량(사막) 지역 재앵커 실패 증거 — '('가 '1'로 일관 오매칭되던 렌더링.
+# read_coords 전체 경로(슬라이드 없음 + 세그먼테이션 복구 재시도) 회귀.
+EVIDENCE_COORDS = [
+    ("spikes/t14_pan_tuning/work/ev_r148b.png", (60, 114, 300, 144), (240, 680)),
+    ("spikes/t14_pan_tuning/work/ev_r149a.png", (60, 132, 300, 162), (36, 890)),
+    ("spikes/t14_pan_tuning/work/ev_r150b.png", (60, 156, 300, 186), (71, 863)),
+    ("spikes/t14_pan_tuning/work/ev_r151e.png", (60, 114, 300, 144), (206, 733)),
+]
+
 
 def load_strip(rel: str, rect) -> np.ndarray:
     data = np.fromfile(str(REPO / rel), dtype=np.uint8)
@@ -44,6 +53,12 @@ class DigitReaderTest(unittest.TestCase):
     def test_read_coords_parses_pair(self):
         rel, rect, _ = STRIPS[0]
         self.assertEqual(self.reader.read_coords(load_strip(rel, rect)), (1020, 620))
+
+    def test_desert_region_evidence_coords(self):
+        for rel, rect, want in EVIDENCE_COORDS:
+            with self.subTest(src=rel):
+                self.assertEqual(
+                    self.reader.read_coords(load_strip(rel, rect)), want)
 
     def test_blank_strip_reads_empty(self):
         blank = np.zeros((20, 100, 3), dtype=np.uint8)

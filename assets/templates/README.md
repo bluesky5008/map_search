@@ -36,6 +36,7 @@ vision 계층(TileClassifier, DigitReader)이 사용하는 템플릿. 게임 업
 | `image/7목재-적군.png` | (600,236,722,262) | `(1032,663)` |
 | `spikes/t14_pan_tuning/work/pilot_p12_strip.png` | (121,150,194,180) | `(138,795)` — 봄 테마 점령형 팝업(실기 "3"→"8" 오판독 유형, T14.3 보강) |
 | `spikes/t14_pan_tuning/work/survey_center_03_strip.png` | (122,132,203,162) | `(1018,622)` — 봄 테마 특수지형(절벽) 팝업 |
+| `spikes/t14_pan_tuning/work/ev_r148b.png` 외 3 (`ev_r149a`·`ev_r150b`·`ev_r151e`) | 좌표 줄은 `extract_glyphs.py`가 자동 정렬 | `(240,680)`·`(36,890)`·`(71,863)`·`(206,733)` — **서량(사막) 지역** 재앵커 실패 증거. 이 렌더링은 `(`가 `1`로 일관 오매칭돼 판독 성공 2/27이었다(`read_evidence.py` 코퍼스) → `paren_l_5~7` 수확 + 세그먼테이션 복구 패스(`digits.py` repair)로 15/27 회복. 다지점 글리프(`8`·`0`) 수확은 교차 오판독으로 롤백 — 남은 실패는 잔여 한계 |
 
 추출 도구: `spikes/t14_pan_tuning/extract_glyphs.py` — 기대 문자열을 클러스터
 열 위로 정렬해 현재 리더가 틀리는 글리프만 변형으로 저장하고, 저장 후

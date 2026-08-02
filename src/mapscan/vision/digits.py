@@ -40,28 +40,79 @@ class DigitReader:
         if not self._glyphs:
             raise FileNotFoundError(f"글리프 템플릿이 없습니다: {template_dir}")
 
-    def read(self, strip: np.ndarray) -> str:
-        """스트립(RGB)의 글리프들을 왼쪽부터 읽는다. 인식 실패 글리프는 '?'."""
+    def read(self, strip: np.ndarray, repair: bool = False) -> str:
+        """스트립(RGB)의 글리프들을 왼쪽부터 읽는다. 인식 실패 글리프는 '?'.
+
+        repair=True면 세그먼테이션 복구 패스(사실 35): 인접 클러스터 병합과
+        과폭 클러스터 분할 가설을 매칭 점수로 판정해 채택한다 — '0'의 좌우 획
+        분리(내부 간격 = 글리프 간 간격이라 간격 규칙으로는 판정 불가)와
+        "(1"·"0)"류 맞닿음 병합이 이 폰트의 실측 실패 모드다.
+        """
         hsv = cv2.cvtColor(strip, cv2.COLOR_RGB2HSV)
         mask = ((hsv[:, :, 1] < _TEXT_MAX_SAT) &
                 (hsv[:, :, 2] >= _TEXT_MIN_VAL)).astype(np.uint8)
         gray = cv2.cvtColor(strip, cv2.COLOR_RGB2GRAY)
+        clusters = _glyph_clusters(mask)
+        if repair:
+            return self._read_repaired(gray, mask, clusters)
         return "".join(self._match(gray[y0:y1, x0:x1])
-                       for x0, y0, x1, y1 in _glyph_clusters(mask))
+                       for x0, y0, x1, y1 in clusters)
 
     def read_coords(self, strip: np.ndarray) -> tuple[int, int] | None:
-        """"(x,y)" 형식의 좌표 텍스트를 파싱한다."""
-        m = re.search(r"\((\d+),(\d+)\)", self.read(strip))
-        return (int(m.group(1)), int(m.group(2))) if m else None
+        """"(x,y)" 형식의 좌표 텍스트를 파싱한다. 실패 시 복구 판독 재시도."""
+        for repair in (False, True):
+            m = re.search(r"\((\d+),(\d+)\)", self.read(strip, repair=repair))
+            if m:
+                return (int(m.group(1)), int(m.group(2)))
+        return None
+
+    # -- 세그먼테이션 복구 (사실 35) ----------------------------------------
+
+    def _read_repaired(self, gray: np.ndarray, mask: np.ndarray,
+                       clusters: list) -> str:
+        w_digit = max(t.shape[1] for c, t in self._glyphs if c.isdigit())
+        out: list[str] = []
+        i = 0
+        while i < len(clusters):
+            c = clusters[i]
+            ch, sc = self._match_scored(_crop(gray, c))
+            # 병합 가설: 다음 클러스터와 2px 이내 간격 + 병합 폭이 한 글리프 폭
+            if i + 1 < len(clusters):
+                nxt = clusters[i + 1]
+                gap = nxt[0] - c[2]
+                union = (c[0], min(c[1], nxt[1]), nxt[2], max(c[3], nxt[3]))
+                if 0 <= gap <= 2 and union[2] - union[0] <= w_digit + 1:
+                    ch_n, sc_n = self._match_scored(_crop(gray, nxt))
+                    ch_m, sc_m = self._match_scored(_crop(gray, union))
+                    if ch_m != "?" and sc_m > max(sc, sc_n):
+                        out.append(ch_m)
+                        i += 2
+                        continue
+            # 분할 가설: 과폭 클러스터를 마스크 최소 밀도 열에서 이분
+            if c[2] - c[0] > w_digit + 1:
+                parts = _split_at_valley(mask, c)
+                if parts is not None:
+                    got = [self._match_scored(_crop(gray, p)) for p in parts]
+                    if all(g[0] != "?" for g in got) and \
+                            min(g[1] for g in got) > sc:
+                        out.extend(g[0] for g in got)
+                        i += 1
+                        continue
+            out.append(ch)
+            i += 1
+        return "".join(out)
 
     def _match(self, crop: np.ndarray) -> str:
+        return self._match_scored(crop)[0]
+
+    def _match_scored(self, crop: np.ndarray) -> tuple[str, float]:
         ch, cw = crop.shape
         if ch * cw <= _TINY_AREA:
             # 콤마 등 초소형 글리프는 NCC가 불안정하다 — 크기가 가장 가까운
             # 초소형 템플릿으로 판정한다.
             tiny = [(abs(t.shape[0] - ch) + abs(t.shape[1] - cw), c)
                     for c, t in self._glyphs if t.shape[0] * t.shape[1] <= _TINY_AREA]
-            return min(tiny)[1] if tiny else "?"
+            return (min(tiny)[1], 0.0) if tiny else ("?", 0.0)
         best_char, best_score = "?", _MATCH_THRESHOLD
         for char, tpl in self._glyphs:
             th, tw = tpl.shape
@@ -72,7 +123,24 @@ class DigitReader:
             score = cv2.matchTemplate(resized, tpl, cv2.TM_CCOEFF_NORMED)[0, 0]
             if np.isfinite(score) and score > best_score:
                 best_char, best_score = char, score
-        return best_char
+        return best_char, (best_score if best_char != "?" else 0.0)
+
+
+def _crop(gray: np.ndarray, box: tuple) -> np.ndarray:
+    x0, y0, x1, y1 = box
+    return gray[y0:y1, x0:x1]
+
+
+def _split_at_valley(mask: np.ndarray, box: tuple
+                     ) -> list[tuple[int, int, int, int]] | None:
+    """과폭 클러스터를 중앙부 마스크 최소 밀도 열에서 둘로 나눈다."""
+    x0, y0, x1, y1 = box
+    cols = mask[y0:y1, x0:x1].sum(axis=0)
+    lo, hi = max(1, (x1 - x0) // 4), (x1 - x0) - max(1, (x1 - x0) // 4)
+    if hi <= lo:
+        return None
+    cut = lo + int(np.argmin(cols[lo:hi]))
+    return [(x0, y0, x0 + cut, y1), (x0 + cut, y0, x1, y1)]
 
 
 def _glyph_clusters(mask: np.ndarray) -> list[tuple[int, int, int, int]]:
