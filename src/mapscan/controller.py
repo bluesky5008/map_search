@@ -1,8 +1,14 @@
-"""ScanController — 스캔 수명주기·모드 전략 (설계 §2, §4.3 v3 / DCR-003).
+"""ScanController — 스캔 수명주기·모드 전략 (설계 §2, §4.3 v4 / DCR-003·004).
 
 v1은 MODE-A2(DetailScan)만 구현한다(DCR-001). 스캔 루프는 행 기반이다:
 행 = 좌표 점프(재앵커) 1회 + 팬 N회. 팬 이동은 PanTracker가 전단 모델로
 실측·누적하고, 분류는 y 대역의 신규 진입 셀로 한정한다(커버 비트맵 중복 제거).
+
+좌표 무결성(DCR-004): 격자 기저의 y-성분이 맵 지역 의존이라 추측항법만으로는
+행 이동 중 좌표가 팬당 my 1.3~1.7타일씩 드리프트한다(T14 실측). K팬마다 뷰
+중앙 타일을 클릭해 팝업 좌표·선택 링으로 재앵커하고, 분류 레코드는 사이클
+단위로 버퍼링했다가 실측 드리프트를 팬별 선형 보간해 보정 후 기록한다.
+미보정 꼬리는 기록하지 않는다(오좌표보다 미커버가 안전 — 보충 방문 몫).
 
 행 기하: 화면 y는 49·mx + 45·my 에 비례하므로(기저 E_MX/E_MY의 y성분),
 c = 49·mx + 45·my 가 같은 점들이 같은 화면 높이에 놓인다. 행 하나는 분류
@@ -14,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -23,8 +29,8 @@ from .nav import ui
 from .nav.pan import PanTracker, TrackLost
 from .nav.planner import ScanPlanner
 from .store import DataStore, TileRecord
-from .vision import TileClassifier
-from .vision.grid import GridMapper, _cell_intersects_rect
+from .vision import DigitReader, TileClassifier
+from .vision.grid import GridMapper, _cell_intersects_rect, find_selection_highlight
 from .watchdog import Watchdog, WatchdogAlert
 
 log = logging.getLogger(__name__)
@@ -33,6 +39,39 @@ C_BAND = ui.BAND_Y[1] - ui.BAND_Y[0]   # 행이 담당하는 c 구간 = 분류 �
 _EDGE_MARGIN = 15        # 뷰 중심이 맵 경계에 이만큼 접근하면 행 종료(잔여는 보충)
 _ROW_RETRIES = 2
 _MAX_PANS_PER_ROW = 200  # 폭주 방지 상한(1619² 대각 행도 ~120팬이면 끝난다)
+
+# ---- 재앵커 (DCR-004) ------------------------------------------------------
+_REANCHOR_EVERY = 3      # K팬마다 클릭 재앵커
+_REANCHOR_MAX_MISS = 2   # 연속 실패 사이클 상한 → 행 조기 종료
+_MAX_TRACK_LOST = 3      # 사이클 내 추적 손실 상한 → 행 조기 종료
+_REANCHOR_SETTLE_S = 1.1
+_RING_NEAR_PX = (90, 60)  # 클릭점에서 이 이상 먼 링은 오검출로 무시
+
+
+def _sanity_window(pans_since: int, losts: int) -> int:
+    """재앵커 판독-예측 차 허용(타일). 드리프트는 팬당 1~2타일, TrackLost 팬은
+    변위(~17 u-스텝) 자체가 유실되므로 그만큼 넓힌다(T14 파일럿)."""
+    return 2 + 2 * pans_since + 15 * losts
+
+
+def _read_popup_coords(reader, frame, cx, cy):
+    """클릭점(프레임 좌표) 위쪽의 팝업 좌표 문자열을 슬라이딩 판독한다.
+
+    좌표 줄 위치는 팝업 구성(타일 종류·배지·이름 접두)에 따라 달라 x·y를
+    함께 슬라이딩한다(S-5·T14 실측).
+    """
+    for dx_off in (0, -30, -60, 30, 60, 90, 120):
+        for dy in range(-260, -88, 6):
+            y0, x0 = cy + dy, cx - 30 + dx_off
+            if y0 < 0 or x0 < 0:
+                continue
+            strip = frame[y0:y0 + 34, x0:x0 + 225]
+            if strip.size == 0:
+                continue
+            got = reader.read_coords(strip)
+            if got:
+                return got
+    return None
 
 
 @dataclass(frozen=True)
@@ -71,6 +110,7 @@ class DetailScan:
         self.nav = nav
         self.store = store
         self.clf = classifier or TileClassifier()
+        self.reader = DigitReader()
         self.watchdog = Watchdog()
 
     # -- 실행 --------------------------------------------------------------
@@ -138,39 +178,176 @@ class DetailScan:
         popup = (anchor_c[0] + ui.POPUP_RECT_REL[0], anchor_c[1] + ui.POPUP_RECT_REL[1],
                  anchor_c[0] + ui.POPUP_RECT_REL[2], anchor_c[1] + ui.POPUP_RECT_REL[3])
         tracker = PanTracker(offset)
-        self._classify_new(scan_id, grid, tracker, frame, map_max, covered,
-                           extra_exclude=[popup])
-        prev = frame
+        # 지연 기록 버퍼(DCR-004): (앵커 이후 팬 서수, records). 어떤 경로로든
+        # 버퍼를 버릴 때는 커버 비트맵 표시를 함께 되돌려야 한다(보충 방문 몫).
+        buffer: list[tuple[int, list[TileRecord]]] = [
+            (0, self._classify_new(grid, tracker, frame, map_max,
+                                   covered, extra_exclude=[popup]))]
+        try:
+            self._row_pans(scan_id, row, grid, tracker, offset, buffer,
+                           covered, map_max)
+        except BaseException:
+            self._drop_buffer(buffer, covered)
+            raise
+
+    def _row_pans(self, scan_id, row, grid, tracker, offset, buffer,
+                  covered, map_max) -> None:
+        """행의 팬 루프 — 버퍼는 재앵커 성공 시 보정 기록, 실패 시 폐기된다."""
+        prev = self.nav.capture.grab_fresh()
+        pans_since = losts = misses = 0
         max_pans = getattr(self, "_max_pans", _MAX_PANS_PER_ROW)
+        edge_reached = False
         for k in range(max_pans):
             src, dst = ui.PAN_SHORT if k == 0 else ui.PAN_WIDE
             frame = self.nav.pan(src, dst, steps=12 if k == 0 else 24)
             self.watchdog.check(frame)
+            pans_since += 1
             try:
                 info = tracker.update(prev, frame, dst[0] - src[0])
                 # raw 텔레메트리 — 기각 규칙 튜닝·사후 원인 분석용(T14)
                 log.info("행 %d 팬 #%d: a=%s b=%s raw=%s rejected=%s expect=%s",
                          row.index, k + 1, info["a"], info["b"], info["raw"],
                          info["rejected"], info["expect"])
+                buffer.append((pans_since, self._classify_new(
+                    grid, tracker, frame, map_max, covered)))
             except TrackLost as exc:
-                # 확보한 타일은 유지된다 — 행을 조기 종료하고 잔여는 다음 행
-                # 겹침·보충 방문이 커버한다. 재시도해도 같은 내용이라 무익하다.
-                log.warning("행 %d 팬 #%d 추적 손실 — 행 조기 종료: %s",
-                            row.index, k + 1, exc)
-                return
-            self._classify_new(scan_id, grid, tracker, frame, map_max, covered)
+                # 변위 미상 — 이 팬은 분류를 생략하고 재앵커 복구를 기다린다
+                losts += 1
+                log.warning("행 %d 팬 #%d 추적 손실(분류 생략, %d회째): %s",
+                            row.index, k + 1, losts, exc)
+                if losts >= _MAX_TRACK_LOST:
+                    self._drop_buffer(buffer, covered)
+                    buffer.clear()
+                    log.warning("행 %d: 추적 손실 %d회 — 행 조기 종료(미보정 꼬리 폐기)",
+                                row.index, losts)
+                    return
             prev = frame
+
+            if (k + 1) % _REANCHOR_EVERY == 0:
+                res = self._reanchor(row, grid, tracker, frame.shape, offset,
+                                     pans_since, losts)
+                if res is not None:
+                    grid, drift = res
+                    self._flush(scan_id, buffer, drift, pans_since, covered,
+                                map_max)
+                    buffer.clear()
+                    tracker.A = tracker.B = 0.0
+                    pans_since = losts = misses = 0
+                    prev = self.nav.capture.grab_fresh()   # 재앵커 팝업 포함 기준
+                else:
+                    misses += 1
+                    if misses >= _REANCHOR_MAX_MISS:
+                        self._drop_buffer(buffer, covered)
+                        buffer.clear()
+                        log.warning("행 %d: 재앵커 연속 %d회 실패 — 행 조기 종료"
+                                    "(미보정 꼬리 폐기)", row.index, misses)
+                        return
+
             cx, cy = self._view_center(grid, tracker, offset, frame.shape)
             if cx > map_max[0] - _EDGE_MARGIN or cy < _EDGE_MARGIN:
-                return
-        if max_pans < _MAX_PANS_PER_ROW:
-            return   # 점검용 팬 상한 — 정상 종료(잔여는 보충·재개 대상)
-        raise TrackLost(f"행 {row.index}: 팬 상한 초과(뷰가 경계에 닿지 않음)")
+                edge_reached = True
+                break
+
+        # 행 종료(경계 도달·팬 상한) — 최종 재앵커로 꼬리를 보정 기록한다
+        if pans_since > 0 or any(recs for _, recs in buffer):
+            res = self._reanchor(row, grid, tracker, prev.shape, offset,
+                                 pans_since, losts)
+            if res is not None:
+                self._flush(scan_id, buffer, res[1], max(pans_since, 1),
+                            covered, map_max)
+            else:
+                n = self._drop_buffer(buffer, covered)
+                if n:
+                    log.warning("행 %d: 종료 재앵커 실패 — 꼬리 %d타일 폐기(보충 몫)",
+                                row.index, n)
+            buffer.clear()
+        if not edge_reached and max_pans >= _MAX_PANS_PER_ROW:
+            raise TrackLost(f"행 {row.index}: 팬 상한 초과(뷰가 경계에 닿지 않음)")
+
+    # -- 재앵커·지연 기록 (DCR-004) ------------------------------------------
+
+    def _reanchor(self, row, grid, tracker, frame_shape, offset,
+                  pans_since, losts):
+        """뷰 중앙 대역 예측 타일을 클릭해 (새 그리드, 드리프트)를 얻는다.
+
+        판독 실패·새니티 창 위반이면 None — 호출자가 실패 횟수로 행 지속을
+        판단한다. 링이 클릭점 근방이면 앵커 위치로 쓴다(정밀), 아니면 클릭점
+        (반 타일 이내 정확)으로 폴백한다.
+        """
+        h, w = frame_shape[:2]
+        ox, oy = offset
+        yf = (ui.BAND_Y[0] + ui.BAND_Y[1]) / 2 + oy
+        ccx, ccy = grid.to_map(w / 2 - tracker.shift_at(yf), yf)
+        best = None
+        for dmx in range(-3, 4):
+            for dmy in range(-3, 4):
+                mx, my = round(ccx) + dmx, round(ccy) + dmy
+                x0, y0 = grid.to_screen(mx, my)
+                px, py = x0 + tracker.shift_at(y0), y0
+                d = abs(px - w / 2) + abs(py - yf)
+                if best is None or d < best[0]:
+                    best = (d, mx, my, px, py)
+        _, mx, my, px, py = best
+        self.nav.verify_detail_view(self.nav.capture.grab_fresh())
+        self.nav.input.click(round(px - ox), round(py - oy))
+        time.sleep(_REANCHOR_SETTLE_S)
+        after = self.nav.capture.grab_fresh()
+        got = _read_popup_coords(self.reader, after, round(px), round(py))
+        win = _sanity_window(pans_since, losts)
+        if not got or abs(got[0] - mx) > win or abs(got[1] - my) > win:
+            log.warning("행 %d 재앵커 실패: 예측(%d,%d) 판독%s 허용창±%d",
+                        row.index, mx, my, got, win)
+            return None
+        ring = find_selection_highlight(after)
+        if ring is not None and (abs(ring[0] - px) > _RING_NEAR_PX[0]
+                                 or abs(ring[1] - py) > _RING_NEAR_PX[1]):
+            ring = None   # 오검출(하단 HUD 등) 방어
+        pos = ring if ring is not None else (px, py)
+        drift = (got[0] - mx, got[1] - my)
+        log.info("행 %d 재앵커: 예측(%d,%d) → 실측%s 드리프트(%+d,%+d)%s",
+                 row.index, mx, my, got, drift[0], drift[1],
+                 "" if ring is None else " [링]")
+        return GridMapper(grid.basis, tuple(pos), tuple(got)), drift
+
+    def _flush(self, scan_id, buffer, drift, n, covered, map_max) -> int:
+        """버퍼 레코드에 드리프트를 팬별 선형 보간 보정해 기록한다."""
+        for _, recs in buffer:
+            for r in recs:
+                covered[r.y, r.x] = False
+        out = []
+        for i, recs in buffer:
+            cx = round(drift[0] * i / n)
+            cy = round(drift[1] * i / n)
+            for r in recs:
+                nx, ny = r.x + cx, r.y + cy
+                if not (0 <= nx <= map_max[0] and 0 <= ny <= map_max[1]):
+                    continue
+                if covered[ny, nx]:
+                    continue
+                covered[ny, nx] = True
+                out.append(replace(r, x=nx, y=ny) if (cx or cy) else r)
+        if out:
+            self.store.upsert_tiles(scan_id, out)
+        return len(out)
+
+    def _drop_buffer(self, buffer, covered) -> int:
+        """미보정 버퍼를 폐기하고 커버 표시를 되돌린다(보충 방문 몫)."""
+        n = 0
+        for _, recs in buffer:
+            for r in recs:
+                covered[r.y, r.x] = False
+                n += 1
+        return n
 
     # -- 분류·커버 ----------------------------------------------------------
 
-    def _classify_new(self, scan_id, grid, tracker, frame, map_max, covered,
-                      extra_exclude=()) -> int:
+    def _classify_new(self, grid, tracker, frame, map_max, covered,
+                      extra_exclude=()) -> list[TileRecord]:
+        """대역 내 신규 진입 셀을 분류해 반환한다(기록은 호출자의 몫 — 지연 기록).
+
+        커버 비트맵은 행 내 중복 분류 방지를 위해 즉시 표시한다. 버퍼를
+        폐기하는 쪽이 표시를 되돌린다.
+        """
         offset = tracker.offset
         exclude = list(ui.HUD_RECTS_CLIENT) + list(extra_exclude)
         records = []
@@ -183,9 +360,7 @@ class DetailScan:
                                       kind=r.kind, occupancy=r.occupancy,
                                       confidence=r.confidence))
             covered[my, mx] = True
-        if records:
-            self.store.upsert_tiles(scan_id, records)
-        return len(records)
+        return records
 
     def _covered_bitmap(self, scan_id: int,
                         map_max: tuple[int, int]) -> np.ndarray:
