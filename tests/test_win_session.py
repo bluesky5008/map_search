@@ -147,5 +147,67 @@ class AttachTest(unittest.TestCase):
             self.assertEqual(sess.WindowSession.attach().hwnd, 7)
 
 
+class MuMuDiscoveryTest(unittest.TestCase):
+    """DCR-005: MuMu 인스턴스는 제목이 아니라 창 구조로 판별한다(S-7)."""
+
+    def _wire(self, cls="Qt5156QWindowIcon",
+              kids=(("MuMuNxDevice", 20), ("nemudisplay", 30))):
+        titles = {10: "용스"}
+        titles.update({h: t for t, h in kids})
+        stack = [
+            mock.patch.object(sess.win32, "window_class",
+                              side_effect=lambda h: cls if h == 10 else "nemuwin"),
+            mock.patch.object(sess.win32, "child_windows",
+                              return_value=[h for _, h in kids]),
+            mock.patch.object(sess.win32, "window_text",
+                              side_effect=lambda h: titles.get(h, "")),
+            mock.patch.object(sess.win32, "client_size", return_value=(2544, 657)),
+        ]
+        for p in stack:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_qt_top_with_device_children_is_instance(self):
+        self._wire()
+        inst = sess._mumu_from_top(10)
+        self.assertEqual((inst.title, inst.top, inst.device, inst.display),
+                         ("용스", 10, 20, 30))
+        self.assertEqual(inst.client, (2544, 657))
+
+    def test_non_qt_top_is_not_instance(self):
+        self._wire(cls="Chrome_WidgetWin_1")
+        self.assertIsNone(sess._mumu_from_top(10))
+
+    def test_missing_display_child_is_not_instance(self):
+        self._wire(kids=(("MuMuNxDevice", 20),))
+        self.assertIsNone(sess._mumu_from_top(10))
+
+    def _inst(self, title="용스", client=(2544, 657)):
+        return sess.MuMuInstance(title=title, top=1, device=2, display=3,
+                                 client=client)
+
+    def test_select_by_title_with_client_check(self):
+        with mock.patch.object(sess, "find_mumu_instances",
+                               return_value=[self._inst(), self._inst("실버")]):
+            got = sess.find_mumu_instance("용스", expect_client=(2544, 657))
+            self.assertEqual(got.title, "용스")
+
+    def test_unknown_title_lists_found_names(self):
+        with mock.patch.object(sess, "find_mumu_instances",
+                               return_value=[self._inst("실버")]):
+            with self.assertRaises(RuntimeError) as ctx:
+                sess.find_mumu_instance("용스")
+            self.assertIn("실버", str(ctx.exception))
+
+    def test_wrong_internal_resolution_is_rejected(self):
+        # 내부 해상도 불일치 = 스케일링(1:1 파괴) 상태 — 창 리사이즈로
+        # 보정하지 않고 명시적으로 거부한다(DCR-005 필수 제약).
+        with mock.patch.object(sess, "find_mumu_instances",
+                               return_value=[self._inst(client=(1920, 1080))]):
+            with self.assertRaises(RuntimeError) as ctx:
+                sess.find_mumu_instance("용스", expect_client=(2544, 657))
+            self.assertIn("1:1", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

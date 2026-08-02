@@ -60,11 +60,19 @@ class PostMessageInput:
             time.sleep(0.03)
 
     def key(self, vk: int, count: int = 1) -> None:
-        """가상 키 입력(WM_KEYDOWN/UP). 백스페이스 등 편집 키 전달용."""
+        """가상 키 입력(WM_KEYDOWN/UP). 백스페이스 등 편집 키 전달용.
+
+        lParam에 스캔코드를 채운다 — PC 클라이언트는 lParam=0도 처리하지만
+        MuMu(IME 오버레이)는 스캔코드 없는 키 메시지를 무시한다(S-7 실측:
+        VK_BACK lParam=0 무효, 스캔코드 포함 시 삭제 동작).
+        """
+        scan = win32.user32.MapVirtualKeyW(vk, 0) & 0xFF  # MAPVK_VK_TO_VSC
+        down = 1 | (scan << 16)
+        up = down | (1 << 30) | (1 << 31)
         for _ in range(count):
-            win32.post(self.hwnd, win32.WM_KEYDOWN, vk, 0)
+            win32.post(self.hwnd, win32.WM_KEYDOWN, vk, down)
             time.sleep(0.02)
-            win32.post(self.hwnd, win32.WM_KEYUP, vk, 0xC0000000)
+            win32.post(self.hwnd, win32.WM_KEYUP, vk, up)
             time.sleep(0.03)
 
     def double_click(self, x: int, y: int) -> None:

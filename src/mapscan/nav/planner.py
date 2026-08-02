@@ -34,12 +34,12 @@ class ScanPlanner:
                  basis: GridBasis = GridBasis(),
                  client_size: tuple[int, int] = (2544, 657),
                  hud_rects: Iterable[tuple[int, int, int, int]] | None = None,
-                 popup_rect: tuple[int, int, int, int] | None = None):
+                 popup_rects: Iterable[tuple[int, int, int, int]] | None = None):
         self.map_max = map_max
         self.basis = basis
         self.client_size = client_size
         hud = list(ui.HUD_RECTS_CLIENT if hud_rects is None else hud_rects)
-        popup = ui.POPUP_RECT_REL if popup_rect is None else popup_rect
+        popup = list(ui.POPUP_RECTS_REL if popup_rects is None else popup_rects)
         self.offsets = _coverage_offsets(basis, client_size, hud, popup)
         if not self.offsets:
             raise ValueError("커버리지 없음 — 오클루전이 화면 전체를 덮습니다")
@@ -136,11 +136,12 @@ class ScanPlanner:
 
 def _coverage_offsets(basis: GridBasis, client_size: tuple[int, int],
                       hud: list[tuple[int, int, int, int]],
-                      popup: tuple[int, int, int, int]) -> set[tuple[int, int]]:
+                      popup: list[tuple[int, int, int, int]]) -> set[tuple[int, int]]:
     """화면 중앙에 앵커를 둔 방문 하나가 커버하는 맵 오프셋 집합."""
     cx, cy = client_size[0] / 2, client_size[1] / 2
     grid = GridMapper(basis, (cx, cy), (0, 0))
-    exclude = hud + [(cx + popup[0], cy + popup[1], cx + popup[2], cy + popup[3])]
+    exclude = hud + [(cx + x0, cy + y0, cx + x1, cy + y1)
+                     for x0, y0, x1, y1 in popup]
     return {(c.mx, c.my) for c in grid.visible_cells(client_size, exclude=exclude)}
 
 

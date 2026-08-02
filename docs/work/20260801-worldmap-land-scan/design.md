@@ -1,9 +1,9 @@
 # SW 설계 — 월드맵 토지정보 추출기
 
 - 작업 ID: 20260801-worldmap-land-scan
-- 기준선: **v4 (승인됨)** — 승인일 2026-08-02 ([DCR-004](changes/DCR-004-reanchor-coordinate-integrity.md): 좌표 무결성 — 주기 재앵커 + 지연 기록. 이전: v3 [DCR-003](changes/DCR-003-nfr02-final-pan-design.md), v2 [DCR-001](changes/DCR-001-mode-a-zoom-limits.md))
+- 기준선: **v5 (승인됨)** — 승인일 2026-08-02 ([DCR-005](changes/DCR-005-mumu-execution-target.md): 실행 대상 MuMu 전환 + 다계정 병렬. 이전: v4 [DCR-004](changes/DCR-004-reanchor-coordinate-integrity.md), v3 [DCR-003](changes/DCR-003-nfr02-final-pan-design.md), v2 [DCR-001](changes/DCR-001-mode-a-zoom-limits.md))
 - 대상 요구사항: [requirements.md](requirements.md) v3
-- 작성일: 2026-08-01 / 최종 갱신: 2026-08-02 (T14 실측 반영, DCR-004 승인)
+- 작성일: 2026-08-01 / 최종 갱신: 2026-08-02 (DCR-005 MuMu 적응·S-7 실측 반영)
 - 구현 실측으로 **수단**이 바뀐 항목은 [design-change-log.md](design-change-log.md)의 "경미한 변경" 표에 이유와 함께 기록했다. 아래 본문은 그 결과를 반영한 상태다.
 
 ## 1. 설계 개요
@@ -15,6 +15,7 @@
 - 스캔 시작 시 창을 **넓고 낮은 스캔 크기(사분면)로 설정**하고 종료 시 복원한다(FR-12, ADR-005). 가시 타일 수가 종횡비에 비례하므로 스캔 소요가 약 1/3로 줄어든다.
 - 수집 데이터는 SQLite를 단일 진실 원천으로 기록하고 완료 시 CSV로 내보낸다(ADR-003).
 - 도구는 **관리자 권한으로 실행**해야 한다(게임이 elevated인 환경에서 UIPI가 입력·창 조작을 차단).
+- *(v5, DCR-005)* **MuMu 에뮬레이터 실행 대상 지원**(`--mumu 인스턴스명`): 창 발견은 제목이 아니라 **구조**(Qt top + MuMuNxDevice/nemudisplay 자식)로 판별하고, **캡처는 top / 입력은 MuMuNxDevice로 HWND 분리**한다(WGC는 최상위 창만 바인딩 가능, nemudisplay는 입력 무반응 — S-7 실측). 창 크기 설정·복원은 **생략**(자식 클라이언트 = 내부 해상도 2544×657, 리사이즈는 1:1 파괴 — 크기 불일치는 명시 거부). 비관리자 실행. 좌표 입력은 **IME 오버레이 프로토콜**(Navigator `ime_overlay` — 오버레이 개폐를 지도 마커 점수로 감지, 스캔코드 백스페이스로 프리필 삭제, ✓ 클릭 확정). `client_offset`·격자·팬 추적·재앵커·분류는 무변경으로 성립(게임 영역 (1,40) = 기존 공식 산출값, 팬 게인 PC 동일 실측).
 
 ```text
 ┌────────────────────────── CLI / Config ──────────────────────────┐

@@ -120,14 +120,10 @@ class ClassifyNewTest(unittest.TestCase):
         with_popup = np.zeros((1620, 1620), dtype=bool)
         n_all = len(scanner._classify_new(grid, tracker, frame,
                                           (1619, 1619), base))
-        anchor_c = (1225, 337)
-        popup = (anchor_c[0] + ui.POPUP_RECT_REL[0],
-                 anchor_c[1] + ui.POPUP_RECT_REL[1],
-                 anchor_c[0] + ui.POPUP_RECT_REL[2],
-                 anchor_c[1] + ui.POPUP_RECT_REL[3])
+        popup = ui.popup_rects_at(1225, 337)
         n_popup = len(scanner._classify_new(grid, tracker, frame,
                                             (1619, 1619), with_popup,
-                                            extra_exclude=[popup]))
+                                            extra_exclude=popup))
         self.assertLess(n_popup, n_all)
 
 

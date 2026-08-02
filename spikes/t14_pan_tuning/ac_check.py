@@ -71,12 +71,9 @@ def main() -> int:
 
             # 점프 팝업 회피 + 화면 내 기록 셀 수집
             anchor_c = (grid.anchor_px[0] - ox, grid.anchor_px[1] - oy)
-            popup0 = (anchor_c[0] + ui.POPUP_RECT_REL[0],
-                      anchor_c[1] + ui.POPUP_RECT_REL[1],
-                      anchor_c[0] + ui.POPUP_RECT_REL[2],
-                      anchor_c[1] + ui.POPUP_RECT_REL[3])
+            popups = ui.popup_rects_at(*anchor_c)
             exclude = [(r[0] + ox, r[1] + oy, r[2] + ox, r[3] + oy)
-                       for r in list(ui.HUD_RECTS_CLIENT) + [popup0]]
+                       for r in list(ui.HUD_RECTS_CLIENT) + popups]
             cands = []
             for cell in grid.visible_cells(frame.shape[1::-1], exclude=exclude):
                 cx_cli, cy_cli = cell.px - ox, cell.py - oy

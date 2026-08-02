@@ -185,14 +185,13 @@ class DetailScan:
             self.nav.verify_detail_view(frame)
         offset = self.nav.client_offset(frame)
         anchor_c = (grid.anchor_px[0] - offset[0], grid.anchor_px[1] - offset[1])
-        popup = (anchor_c[0] + ui.POPUP_RECT_REL[0], anchor_c[1] + ui.POPUP_RECT_REL[1],
-                 anchor_c[0] + ui.POPUP_RECT_REL[2], anchor_c[1] + ui.POPUP_RECT_REL[3])
+        popup = ui.popup_rects_at(*anchor_c)
         tracker = PanTracker(offset)
         # 지연 기록 버퍼(DCR-004): (앵커 이후 팬 서수, records). 어떤 경로로든
         # 버퍼를 버릴 때는 커버 비트맵 표시를 함께 되돌려야 한다(보충 방문 몫).
         buffer: list[tuple[int, list[TileRecord]]] = [
             (0, self._classify_new(grid, tracker, frame, map_max,
-                                   covered, extra_exclude=[popup]))]
+                                   covered, extra_exclude=popup))]
         try:
             self._row_pans(scan_id, row, grid, tracker, offset, buffer,
                            covered, map_max)
@@ -471,13 +470,10 @@ class DetailScan:
                 offset = self.nav.client_offset(frame)
                 anchor_c = (grid.anchor_px[0] - offset[0],
                             grid.anchor_px[1] - offset[1])
-                popup = (anchor_c[0] + ui.POPUP_RECT_REL[0],
-                         anchor_c[1] + ui.POPUP_RECT_REL[1],
-                         anchor_c[0] + ui.POPUP_RECT_REL[2],
-                         anchor_c[1] + ui.POPUP_RECT_REL[3])
+                popup = ui.popup_rects_at(*anchor_c)
                 exclude = [(r[0] + offset[0], r[1] + offset[1],
                             r[2] + offset[0], r[3] + offset[1])
-                           for r in list(ui.HUD_RECTS_CLIENT) + [popup]]
+                           for r in list(ui.HUD_RECTS_CLIENT) + popup]
                 cells = [(c.mx, c.my, c.px, c.py)
                          for c in grid.visible_cells(frame.shape[1::-1],
                                                      exclude=exclude)

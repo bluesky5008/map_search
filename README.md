@@ -2,8 +2,8 @@
 
 게임 **"삼국지-전략판"** PC 클라이언트의 월드맵 전 좌표를 자동 순회하며 좌표별 토지 정보를 추출해 파일로 저장하는 stand-alone Windows 도구입니다. 게임이 좌표별 토지 데이터를 외부로 제공하지 않으므로, 화면 캡처·이미지 인식·UI 자동 조작으로 정보를 수집합니다.
 
-> **상태 (2026-08-02):** 요구사항 **v3** / 설계 **v4** 승인([DCR-004](docs/work/20260801-worldmap-land-scan/changes/DCR-004-reanchor-coordinate-integrity.md) — 좌표 무결성: 주기 재앵커 + 지연 기록). 전 계층 구현 완료(`mapscan scan` 동작), 검증 T14 대부분 완료 — 지정 영역 스캔(18행 14,972타일)·AC-01/03/06 통과, 처리율 개선 후 완주 행 실측 **21.3~21.9타일/s**.
-> **남은 것:** 전체 스캔 1회 완주(예상 38~52시간, 착수는 사용자 지시 대기) → NFR-02(48h) 최종 판정 → AC-02 최종 재대조 → 최종 보고(T15).
+> **상태 (2026-08-02):** 요구사항 **v3** / 설계 **v5** 승인([DCR-005](docs/work/20260801-worldmap-land-scan/changes/DCR-005-mumu-execution-target.md) — 실행 대상을 **MuMu 에뮬레이터**로 전환, PC는 새벽 3시 일괄 로그아웃으로 무인 완주 불가). 전 계층 구현 완료(`mapscan scan --mumu` 동작), MuMu 처리율 실측 **21.8타일/s**(PC 21.3~21.9와 동등), 지정 영역 스캔·AC-01/03/06 통과.
+> **남은 것:** 전체 스캔 1회 완주(예상 38~52시간, MuMu에서 무인 가능 — 착수는 사용자 지시 대기) → NFR-02(48h) 최종 판정 → AC-02 최종 재대조 → 최종 보고(T15).
 > 진행 현황과 재개 지점은 [docs/work/20260801-worldmap-land-scan/plan.md](docs/work/20260801-worldmap-land-scan/plan.md)에서 관리합니다.
 
 ## 수집하는 정보
@@ -57,7 +57,8 @@
 ```
 
 - **백그라운드 동작:** 게임 창이 다른 창에 가려져 있어도 스캔이 진행됩니다(Windows Graphics Capture + PostMessage, 실기 검증 완료). 창 **최소화**는 지원하지 않습니다.
-- **관리자 권한 필요:** 게임이 관리자 권한으로 실행되면 UIPI가 비관리자 프로세스의 입력·창 조작을 차단합니다. 도구도 관리자 권한으로 실행해야 합니다.
+- **MuMu 에뮬레이터 대상(`--mumu 인스턴스명`, DCR-005):** 앱 클라이언트를 MuMu에서 구동해 스캔합니다(PC의 새벽 3시 일괄 로그아웃 회피). 캡처·입력 HWND를 분리(top/MuMuNxDevice)하고, 창 크기 설정을 생략하며(내부 해상도 2544×657 1:1 — **리사이즈 금지**), 좌표 입력은 IME 오버레이 프로토콜을 씁니다. **비관리자 일반 셸**에서 실행하고, 맵 크기는 `--map-size 1619 1619`로 지정합니다.
+- **관리자 권한(PC 클라이언트 대상일 때):** 게임이 관리자 권한으로 실행되면 UIPI가 비관리자 프로세스의 입력·창 조작을 차단합니다. 도구도 관리자 권한으로 실행해야 합니다.
 - **맵 크기 자동 감지:** 좌표 입력란에 큰 값을 넣으면 실제 최대 좌표로 강제 변경되는 게임 동작을 이용합니다. 값을 글자로 읽는 대신 **렌더링 이미지를 비교해 이진 탐색**하므로 폰트가 바뀌어도 동작합니다([ADR-006](docs/work/20260801-worldmap-land-scan/decisions/ADR-006-map-size-detection.md)). 실측 대상 서버는 **1619×1619**.
 - **오조작 방지:** 지도 UI를 클릭하기 전 매번 화면 상태를 확인하고, 기대한 화면이 아니면 조작하지 않고 중단합니다. 선택 팝업에는 점령·행군처럼 되돌릴 수 없는 버튼이 있어 필요한 장치입니다.
 - **중단/재개:** 수집은 SQLite에 좌표 단위로 멱등 기록되며, 강제 종료 후 재시작하면 체크포인트에서 이어서 스캔합니다.
@@ -121,10 +122,13 @@ x,y,category,kind,level,occupancy,center_x,center_y,center_estimated,confidence,
 # 개발 환경 준비 (한 번만) — 테스트·CLI가 mapscan 패키지를 찾게 합니다
 .venv\Scripts\python -m pip install -e . --no-deps
 
-# 대상 창 목록. 같은 제목 창이 여러 개면 --crops로 계정명을 저장해 구분합니다
+# 대상 창 목록 — MuMu 인스턴스와 PC 클라이언트 창을 함께 표시합니다
 .venv\Scripts\python -m mapscan.cli windows --crops output
 
-# 전체 스캔 (관리자 권한 필요, 수십 시간 — 재실행하면 체크포인트에서 재개)
+# 전체 스캔 — MuMu (일반 셸, 무인 완주 가능. 재실행하면 체크포인트에서 재개)
+.venv\Scripts\python -m mapscan.cli scan --mumu 용스 --map-size 1619 1619 --db output\full.db --csv output\full_csv
+
+# 전체 스캔 — PC 클라이언트 (관리자 권한 필요, 새벽 3시 로그아웃 유의)
 .venv\Scripts\python -m mapscan.cli scan --hwnd 0x60042 --db output\full.db --csv output\full_csv
 
 # 부분 실행·점검 (행 150부터 1행, 팬 12회 한도)
@@ -188,7 +192,7 @@ map_search/
 ├── tools/set-client-quadrant.ps1  # ✅ 창 크기 조절 (독립 실행)
 ├── tools/agent_shell.ps1        # 상주 관리자 실행기 (UAC 1회로 명령 파일 순차 실행)
 ├── run_elevated.ps1             # 관리자 권한 실행 러너
-└── tests/                       # 단위·회귀 테스트 (현재 100건)
+└── tests/                       # 단위·회귀 테스트 (현재 111건)
 ```
 
 ## 문서

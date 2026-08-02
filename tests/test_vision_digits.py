@@ -35,6 +35,12 @@ EVIDENCE_COORDS = [
     ("spikes/t14_pan_tuning/work/ev_r163a.png", (60, 132, 300, 162), (405, 607)),
 ]
 
+# MuMu 렌더링(DCR-005, S-7) — '3'→'8'·')'→'0' 오판독을 변형 3_2·3_3·paren_r_4로 해소
+MUMU_COORDS = [
+    ("spikes/s7_mumu/work/g5_best_strip.png", (0, 0, 225, 34), (350, 306)),
+    ("spikes/s7_mumu/work/click_coord_area.png", (0, 0, 400, 50), (346, 313)),
+]
+
 
 def load_strip(rel: str, rect) -> np.ndarray:
     data = np.fromfile(str(REPO / rel), dtype=np.uint8)
@@ -60,6 +66,12 @@ class DigitReaderTest(unittest.TestCase):
 
     def test_desert_region_evidence_coords(self):
         for rel, rect, want in EVIDENCE_COORDS:
+            with self.subTest(src=rel):
+                self.assertEqual(
+                    self.reader.read_coords(load_strip(rel, rect)), want)
+
+    def test_mumu_rendering_coords(self):
+        for rel, rect, want in MUMU_COORDS:
             with self.subTest(src=rel):
                 self.assertEqual(
                     self.reader.read_coords(load_strip(rel, rect)), want)

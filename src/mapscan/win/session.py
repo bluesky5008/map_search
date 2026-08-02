@@ -56,6 +56,62 @@ def find_client_windows(title_substr: str = TITLE_SUBSTR) -> list[WindowInfo]:
     return found
 
 
+@dataclass(frozen=True)
+class MuMuInstance:
+    """MuMu 인스턴스의 캡처·입력 대상 (DCR-005, S-7 실측).
+
+    WGC 캡처는 top(Qt 창)만 가능하고, PostMessage 입력은 MuMuNxDevice가
+    받는다(nemudisplay는 무반응). 자식 클라이언트 크기 = 에뮬레이터 내부
+    해상도(1:1)이므로 창 리사이즈(apply_scan_rect)는 금지다.
+    """
+    title: str                    # 인스턴스명(창 제목, 예: '용스')
+    top: int                      # 캡처 대상 HWND (Qt top)
+    device: int                   # 입력 대상 HWND (MuMuNxDevice)
+    display: int                  # nemudisplay (구조 판별용)
+    client: tuple[int, int]       # device 클라이언트 = 게임 해상도
+
+
+def _mumu_from_top(top: int) -> MuMuInstance | None:
+    """창 구조로 MuMu 인스턴스를 판별한다 — 제목 필터는 미검출(인스턴스명이
+    제목)이라 Qt top + MuMuNxDevice/nemudisplay 자식 구조를 쓴다(S-7)."""
+    if not win32.window_class(top).startswith("Qt"):
+        return None
+    by_title: dict[str, int] = {}
+    for child in win32.child_windows(top):
+        by_title.setdefault(win32.window_text(child), child)
+    device = by_title.get("MuMuNxDevice")
+    display = by_title.get("nemudisplay")
+    if device is None or display is None:
+        return None
+    return MuMuInstance(title=win32.window_text(top), top=top, device=device,
+                        display=display, client=win32.client_size(device))
+
+
+def find_mumu_instances() -> list[MuMuInstance]:
+    found = [_mumu_from_top(h) for h in win32.visible_top_windows()]
+    return [i for i in found if i is not None]
+
+
+def find_mumu_instance(title: str,
+                       expect_client: tuple[int, int] | None = None) -> MuMuInstance:
+    """인스턴스명으로 하나를 확정한다. expect_client가 주어지면 내부 해상도가
+    일치해야 한다 — 불일치는 스케일링(1:1 파괴) 상태이므로 명시적으로 막는다."""
+    found = find_mumu_instances()
+    matched = [i for i in found if i.title == title]
+    if not matched:
+        names = ", ".join(i.title for i in found) or "(없음)"
+        raise RuntimeError(f"MuMu 인스턴스 '{title}'를 찾을 수 없습니다. 발견: {names}")
+    if len(matched) > 1:
+        raise RuntimeError(f"같은 이름의 MuMu 인스턴스가 {len(matched)}개입니다: '{title}'")
+    inst = matched[0]
+    if expect_client is not None and inst.client != expect_client:
+        raise RuntimeError(
+            f"MuMu '{title}' 내부 해상도 {inst.client[0]}x{inst.client[1]} ≠ "
+            f"기대 {expect_client[0]}x{expect_client[1]} — 에뮬레이터 해상도를 "
+            f"맞추세요(창 리사이즈로 보정하면 1:1이 깨져 금지).")
+    return inst
+
+
 class PermissionError_(RuntimeError):
     """게임이 상승 권한으로 실행 중인데 도구는 아닌 경우."""
 

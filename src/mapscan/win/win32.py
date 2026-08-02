@@ -59,6 +59,38 @@ def window_text(hwnd: int) -> str:
     return buf.value
 
 
+def window_class(hwnd: int) -> str:
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buf, 256)
+    return buf.value
+
+
+def visible_top_windows() -> list[int]:
+    found: list[int] = []
+
+    @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    def callback(hwnd, _):
+        if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(callback, 0)
+    return found
+
+
+def child_windows(hwnd: int) -> list[int]:
+    """모든 자손 창(EnumChildWindows는 재귀 열거)."""
+    found: list[int] = []
+
+    @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    def callback(child, _):
+        found.append(child)
+        return True
+
+    user32.EnumChildWindows(hwnd, callback, 0)
+    return found
+
+
 def window_rect(hwnd: int) -> tuple[int, int, int, int]:
     """(left, top, width, height) — 창 외곽."""
     r = wt.RECT()

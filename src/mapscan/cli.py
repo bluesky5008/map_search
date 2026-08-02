@@ -12,15 +12,39 @@ import time
 import numpy as np
 from PIL import Image
 
-from .win import PostMessageInput, WgcCapture, WindowSession, find_client_windows
+from .win import (PostMessageInput, WgcCapture, WindowSession,
+                  find_client_windows, find_mumu_instance, find_mumu_instances)
 
 
 ACCOUNT_NAME_RECT = (50, 55, 400, 110)  # 프레임 좌상단 계정명 영역
 
 
+def _resolve_target(args) -> tuple[WindowSession, int, bool]:
+    """대상 확정 → (세션[캡처 hwnd], 입력 hwnd, 스캔 창 설정 여부).
+
+    MuMu(DCR-005): 캡처는 top, 입력은 MuMuNxDevice로 분리하고, 창 크기
+    설정(apply_scan_rect)은 생략한다 — 자식 클라이언트 = 내부 해상도(1:1)라
+    리사이즈가 스케일링을 만든다. 내부 해상도는 UI 상수 전제와 일치해야 한다.
+    """
+    if getattr(args, "mumu", None):
+        from .nav import ui
+        inst = find_mumu_instance(args.mumu, expect_client=ui.CLIENT_SIZE)
+        session = WindowSession(inst.top)
+        session.check_permission()
+        print(f"MuMu '{inst.title}': top={inst.top:#x} device={inst.device:#x} "
+              f"클라이언트 {inst.client[0]}x{inst.client[1]} (1:1, 창 설정 생략)")
+        return session, inst.device, False
+    session = WindowSession.attach(args.hwnd)
+    return session, session.hwnd, True
+
+
 def cmd_windows(args) -> int:
+    mumu = find_mumu_instances()
+    for m in mumu:
+        print(f"MuMu '{m.title}': top={m.top:#x} device={m.device:#x} "
+              f"client={m.client[0]}x{m.client[1]}")
     found = find_client_windows()
-    if not found:
+    if not found and not mumu:
         print("대상 창을 찾을 수 없습니다.")
         return 1
     for w in found:
@@ -39,13 +63,14 @@ def cmd_windows(args) -> int:
 
 def cmd_probe(args) -> int:
     """스캔 창 설정 → 캡처 → (선택) 클릭 → 복원까지 실기 점검."""
-    session = WindowSession.attach(args.hwnd)
+    session, input_hwnd, apply_rect = _resolve_target(args)
     print(f"대상: {session.info()}")
     with session:
-        client = session.apply_scan_rect()
-        print(f"스캔 창 클라이언트: {client[0]}x{client[1]} "
-              f"(종횡비 {client[0] / client[1]:.2f})")
-        time.sleep(args.settle)
+        if apply_rect:
+            client = session.apply_scan_rect()
+            print(f"스캔 창 클라이언트: {client[0]}x{client[1]} "
+                  f"(종횡비 {client[0] / client[1]:.2f})")
+            time.sleep(args.settle)
 
         capture = WgcCapture(session.hwnd, session.info().title)
         with capture:
@@ -56,7 +81,7 @@ def cmd_probe(args) -> int:
             if args.click:
                 x, y = args.click
                 before = capture.grab_fresh()
-                PostMessageInput(session.hwnd).click(x, y)
+                PostMessageInput(input_hwnd).click(x, y)
                 time.sleep(1.0)
                 after = capture.grab_fresh()
                 changed = int((before != after).sum())
@@ -105,14 +130,17 @@ def cmd_scan(args) -> int:
     from .store import DataStore, export_csv
 
     store = DataStore(args.db)
-    session = WindowSession.attach(args.hwnd)
+    session, input_hwnd, apply_rect = _resolve_target(args)
     print(f"대상: {session.info()}")
     with session:
-        client = session.apply_scan_rect()
-        print(f"스캔 창: {client[0]}x{client[1]} (종횡비 {client[0] / client[1]:.2f})")
-        time.sleep(args.settle)
+        if apply_rect:
+            client = session.apply_scan_rect()
+            print(f"스캔 창: {client[0]}x{client[1]} "
+                  f"(종횡비 {client[0] / client[1]:.2f})")
+            time.sleep(args.settle)
         with WgcCapture(session.hwnd, session.info().title) as capture:
-            nav = Navigator(capture, PostMessageInput(session.hwnd))
+            nav = Navigator(capture, PostMessageInput(input_hwnd),
+                            ime_overlay=bool(getattr(args, "mumu", None)))
             ctl = ScanController(nav, store)
             map_max = tuple(args.map_size) if args.map_size else None
             summary = ctl.run("A2", map_max=map_max,
@@ -143,7 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     windows.set_defaults(func=cmd_windows)
 
     probe = sub.add_parser("probe", help="스캔 창 설정·캡처·클릭·복원 점검")
-    probe.add_argument("--hwnd", type=lambda s: int(s, 0))
+    ptarget = probe.add_mutually_exclusive_group()
+    ptarget.add_argument("--hwnd", type=lambda s: int(s, 0))
+    ptarget.add_argument("--mumu", metavar="인스턴스명",
+                         help="MuMu 인스턴스 대상(캡처 top·입력 device, 창 설정 생략)")
     probe.add_argument("--out", default="probe.png")
     probe.add_argument("--settle", type=float, default=2.0)
     probe.add_argument("--click", type=int, nargs=2, metavar=("X", "Y"))
@@ -159,8 +190,11 @@ def main(argv: list[str] | None = None) -> int:
     classify.set_defaults(func=cmd_classify)
 
     scan = sub.add_parser("scan", help="MODE-A2 전체 스캔 (행 기반, 재개 가능)")
-    scan.add_argument("--hwnd", type=lambda s: int(s, 0), required=True,
-                      help="대상 창 HWND (mapscan windows --crops 로 확인)")
+    target = scan.add_mutually_exclusive_group(required=True)
+    target.add_argument("--hwnd", type=lambda s: int(s, 0),
+                        help="대상 창 HWND (mapscan windows --crops 로 확인)")
+    target.add_argument("--mumu", metavar="인스턴스명",
+                        help="MuMu 인스턴스 대상(캡처 top·입력 device, 창 설정 생략)")
     scan.add_argument("--db", default="output/mapscan.db")
     scan.add_argument("--map-size", type=int, nargs=2, metavar=("MX", "MY"),
                       help="맵 최대 좌표(생략 시 자동 감지 또는 재개 스캔 값)")

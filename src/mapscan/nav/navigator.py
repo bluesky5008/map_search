@@ -51,11 +51,14 @@ class StabilizeTimeout(RuntimeError):
 
 class Navigator:
     def __init__(self, capture, input_, basis: GridBasis = GridBasis(),
-                 ui_cfg=ui, map_mode_template: np.ndarray | None = None):
+                 ui_cfg=ui, map_mode_template: np.ndarray | None = None,
+                 ime_overlay: bool = False):
         self.capture = capture      # grab_fresh() -> RGB 프레임
         self.input = input_         # click/key/type_text (클라이언트 좌표)
         self.basis = basis
         self.ui = ui_cfg
+        # MuMu(앱) 모드: 좌표 입력란 클릭이 전면 IME 오버레이를 연다(DCR-005)
+        self.ime_overlay = ime_overlay
         if map_mode_template is None and MAP_MODE_TEMPLATE.exists():
             map_mode_template = np.asarray(Image.open(MAP_MODE_TEMPLATE).convert("RGB"))
         self._map_mark = map_mode_template
@@ -199,6 +202,12 @@ class Navigator:
         clamp(v) = min(v, max) 이므로 v의 렌더링이 상한 렌더링과 같아지는
         최소 v가 곧 max다. 폰트에 의존하지 않아 게임 업데이트에 강하다.
         """
+        if self.ime_overlay:
+            # 블러 시점 클램프 렌더링 비교(_render_of)가 오버레이 개폐와 얽혀
+            # 성립하지 않는다. 같은 월드의 PC 실측값을 지정해 쓴다.
+            raise NotImplementedError(
+                "MuMu(IME 오버레이) 모드는 맵 크기 감지를 지원하지 않습니다 — "
+                "--map-size로 지정하세요")
         self.enter_map_mode()
         return (self._detect_axis(self.ui.COORD_INPUT_X, self.ui.COORD_READ_X, upper),
                 self._detect_axis(self.ui.COORD_INPUT_Y, self.ui.COORD_READ_Y, upper))
@@ -231,18 +240,40 @@ class Navigator:
     def _set_coords(self, mx: int, my: int) -> None:
         self._type_into(self.ui.COORD_INPUT_X, mx)
         self._type_into(self.ui.COORD_INPUT_Y, my)
-        self._click_verified(self.ui.COORD_INPUT_X)  # 블러 → Y 값 확정
+        if not self.ime_overlay:
+            self._click_verified(self.ui.COORD_INPUT_X)  # 블러 → Y 값 확정
+        # 오버레이 모드는 ✓ 확정이 곧 커밋 — 블러 클릭은 오버레이를 다시 연다
 
     def _type_into(self, field: tuple[int, int], value: int) -> None:
         """입력란을 완전히 비우고 값을 넣는다.
 
         백스페이스는 커서 왼쪽만 지우므로 먼저 End로 커서를 끝으로 보낸다
         (T12 실측 — 생략하면 잔여 문자가 남아 엉뚱한 좌표로 이동한다).
+
+        MuMu(앱) 모드: 입력란 클릭이 전면 IME 오버레이를 연다(커서는 프리필
+        끝). 오버레이가 지도 배너를 가리므로 개폐를 마커 점수로 대기하고,
+        확정은 ✓ 버튼 클릭으로 한다 — Enter는 무효(S-7 ime_probe 실측).
         """
         self._click_verified(field)
+        if self.ime_overlay:
+            self._wait_marker(False, "IME 오버레이 열림")
+            self.input.key(VK_BACK, _FIELD_MAX_DIGITS)
+            self.input.type_text(str(value))
+            self.input.click(*self.ui.IME_CONFIRM)
+            self._wait_marker(True, "IME 오버레이 닫힘")
+            return
         self.input.key(VK_END)
         self.input.key(VK_BACK, _FIELD_MAX_DIGITS)
         self.input.type_text(str(value))
+
+    def _wait_marker(self, present: bool, what: str, timeout: float = 4.0) -> None:
+        """지도 마커의 등장/가림을 대기한다(IME 오버레이 개폐 감지)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.is_map_mode(self.capture.grab_fresh()) == present:
+                return
+            time.sleep(0.1)
+        raise StabilizeTimeout(f"{what} 대기 시간 초과 ({timeout}s)")
 
     def _click_verified(self, point: tuple[int, int]) -> None:
         """지도 모드를 확인한 뒤에만 클릭한다(오클릭 방지)."""

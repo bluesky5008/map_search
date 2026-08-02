@@ -24,6 +24,7 @@ class FakeUi:
     COORD_READ_X = (60, 20, 76, 30)
     COORD_READ_Y = (60, 32, 76, 42)
     JUMP_ANCHOR = (50.0, 30.0)
+    IME_CONFIRM = (98, 5)
 
 
 def make_frame(map_mode: bool = True, fill: int = 0) -> np.ndarray:
@@ -240,6 +241,49 @@ class DetectMapSizeTest(unittest.TestCase):
 
     def test_finds_small_map(self):
         self.assertEqual(self._run(7, 3), (7, 3))
+
+
+class ImeOverlayTest(unittest.TestCase):
+    """MuMu(앱) 좌표 입력 — IME 오버레이 개폐 감지·✓ 확정 시퀀스(DCR-005, S-7)."""
+
+    def _nav(self, frames, inp):
+        return Navigator(FakeCapture(frames), inp, ui_cfg=FakeUi,
+                         map_mode_template=TEMPLATE, ime_overlay=True)
+
+    def test_type_into_clears_prefill_and_confirms(self):
+        inp = FakeInput()
+        # 클릭 검증(마커 O) → 오버레이 열림(마커 X) → ✓ 확정 후 닫힘(마커 O)
+        nav = self._nav([make_frame(True), make_frame(False), make_frame(True)],
+                        inp)
+        nav._type_into(FakeUi.COORD_INPUT_X, 15)
+        self.assertEqual(inp.calls, [
+            ("click", *FakeUi.COORD_INPUT_X),
+            ("key", VK_BACK, 12),          # 프리필 삭제(END 없음 — 커서는 끝)
+            ("type", "15"),
+            ("click", *FakeUi.IME_CONFIRM),
+        ])
+
+    def test_set_coords_skips_final_blur_click(self):
+        inp = FakeInput()
+        nav = self._nav([make_frame(True), make_frame(False), make_frame(True)] * 2,
+                        inp)
+        nav._set_coords(10, 20)
+        clicks = [c for c in inp.calls if c[0] == "click"]
+        # X 필드·✓, Y 필드·✓ — 블러용 X 재클릭(오버레이 재개방 위험)은 없다
+        self.assertEqual(clicks, [
+            ("click", *FakeUi.COORD_INPUT_X), ("click", *FakeUi.IME_CONFIRM),
+            ("click", *FakeUi.COORD_INPUT_Y), ("click", *FakeUi.IME_CONFIRM),
+        ])
+
+    def test_wait_marker_times_out(self):
+        nav = self._nav([make_frame(True)], FakeInput())
+        with self.assertRaises(StabilizeTimeout):
+            nav._wait_marker(False, "오버레이 열림", timeout=0.3)
+
+    def test_map_size_detection_is_refused(self):
+        nav = self._nav([make_frame(True)], FakeInput())
+        with self.assertRaises(NotImplementedError):
+            nav.detect_map_size()
 
 
 if __name__ == "__main__":
