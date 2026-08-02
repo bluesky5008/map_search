@@ -49,17 +49,22 @@ _RING_NEAR_PX = (90, 60)  # 클릭점에서 이 이상 먼 링은 오검출로 �
 
 
 def _sanity_window(pans_since: int, losts: int) -> int:
-    """재앵커 판독-예측 차 허용(타일). 드리프트는 팬당 1~2타일, TrackLost 팬은
-    변위(~17 u-스텝) 자체가 유실되므로 그만큼 넓힌다(T14 파일럿)."""
-    return 2 + 2 * pans_since + 15 * losts
+    """재앵커 판독-예측 차 허용(타일). 드리프트는 팬당 1~2타일이고 클릭 y에
+    따른 전단 국소차가 더해져 3팬에 9타일 편차가 실측됐다(팬당 3으로 커버).
+    TrackLost 팬은 변위(~17 u-스텝) 자체가 유실되므로 그만큼 넓힌다.
+    오판독은 글리프 변형·최빈값 투표로 방어하며, 전형적 오판독 거리(≥50)는
+    이 창이 여전히 기각한다."""
+    return 2 + 3 * pans_since + 15 * losts
 
 
 def _read_popup_coords(reader, frame, cx, cy):
     """클릭점(프레임 좌표) 위쪽의 팝업 좌표 문자열을 슬라이딩 판독한다.
 
     좌표 줄 위치는 팝업 구성(타일 종류·배지·이름 접두)에 따라 달라 x·y를
-    함께 슬라이딩한다(S-5·T14 실측).
+    함께 슬라이딩하고, **모든 파스의 최빈값**을 취한다 — 글리프가 잘린 절단면
+    하나가 그럴듯한 오판독을 내는 사례가 있었다(T14 실기, "3"→"8").
     """
+    votes: dict[tuple[int, int], int] = {}
     for dx_off in (0, -30, -60, 30, 60, 90, 120):
         for dy in range(-260, -88, 6):
             y0, x0 = cy + dy, cx - 30 + dx_off
@@ -70,8 +75,10 @@ def _read_popup_coords(reader, frame, cx, cy):
                 continue
             got = reader.read_coords(strip)
             if got:
-                return got
-    return None
+                votes[got] = votes.get(got, 0) + 1
+    if not votes:
+        return None
+    return max(votes.items(), key=lambda kv: kv[1])[0]
 
 
 @dataclass(frozen=True)
@@ -225,7 +232,8 @@ class DetailScan:
 
             if (k + 1) % _REANCHOR_EVERY == 0:
                 res = self._reanchor(row, grid, tracker, frame.shape, offset,
-                                     pans_since, losts)
+                                     pans_since, losts,
+                                     candidates=buffer[-1][1] if buffer else ())
                 if res is not None:
                     grid, drift = res
                     self._flush(scan_id, buffer, drift, pans_since, covered,
@@ -251,7 +259,8 @@ class DetailScan:
         # 행 종료(경계 도달·팬 상한) — 최종 재앵커로 꼬리를 보정 기록한다
         if pans_since > 0 or any(recs for _, recs in buffer):
             res = self._reanchor(row, grid, tracker, prev.shape, offset,
-                                 pans_since, losts)
+                                 pans_since, losts,
+                                 candidates=buffer[-1][1] if buffer else ())
             if res is not None:
                 self._flush(scan_id, buffer, res[1], max(pans_since, 1),
                             covered, map_max)
@@ -267,8 +276,13 @@ class DetailScan:
     # -- 재앵커·지연 기록 (DCR-004) ------------------------------------------
 
     def _reanchor(self, row, grid, tracker, frame_shape, offset,
-                  pans_since, losts):
-        """뷰 중앙 대역 예측 타일을 클릭해 (새 그리드, 드리프트)를 얻는다.
+                  pans_since, losts, candidates=()):
+        """뷰 중앙 대역의 타일을 클릭해 (새 그리드, 드리프트)를 얻는다.
+
+        대상은 이번 사이클에 분류된 셀 중 **평지(resource — 공터·자원)**를
+        우선한다 — 절벽·산(미상 처리)은 고도 시차로 클릭 피킹이 수 타일
+        어긋나 앵커를 오염시킨다(T14 실측: 절벽에서 (−2,+5)타일). 평지 후보가
+        없으면 뷰 중앙 기하 선택으로 폴백한다.
 
         판독 실패·새니티 창 위반이면 None — 호출자가 실패 횟수로 행 지속을
         판단한다. 링이 클릭점 근방이면 앵커 위치로 쓴다(정밀), 아니면 클릭점
@@ -277,16 +291,27 @@ class DetailScan:
         h, w = frame_shape[:2]
         ox, oy = offset
         yf = (ui.BAND_Y[0] + ui.BAND_Y[1]) / 2 + oy
-        ccx, ccy = grid.to_map(w / 2 - tracker.shift_at(yf), yf)
         best = None
-        for dmx in range(-3, 4):
-            for dmy in range(-3, 4):
-                mx, my = round(ccx) + dmx, round(ccy) + dmy
-                x0, y0 = grid.to_screen(mx, my)
-                px, py = x0 + tracker.shift_at(y0), y0
-                d = abs(px - w / 2) + abs(py - yf)
-                if best is None or d < best[0]:
-                    best = (d, mx, my, px, py)
+        for r in candidates:
+            if r.category != "resource":
+                continue
+            x0, y0 = grid.to_screen(r.x, r.y)
+            px, py = x0 + tracker.shift_at(y0), y0
+            if not (400 <= px <= w - 400):   # 팝업이 화면 밖으로 잘리지 않게
+                continue
+            d = abs(px - w / 2) + abs(py - yf)
+            if best is None or d < best[0]:
+                best = (d, r.x, r.y, px, py)
+        if best is None:
+            ccx, ccy = grid.to_map(w / 2 - tracker.shift_at(yf), yf)
+            for dmx in range(-3, 4):
+                for dmy in range(-3, 4):
+                    mx, my = round(ccx) + dmx, round(ccy) + dmy
+                    x0, y0 = grid.to_screen(mx, my)
+                    px, py = x0 + tracker.shift_at(y0), y0
+                    d = abs(px - w / 2) + abs(py - yf)
+                    if best is None or d < best[0]:
+                        best = (d, mx, my, px, py)
         _, mx, my, px, py = best
         self.nav.verify_detail_view(self.nav.capture.grab_fresh())
         self.nav.input.click(round(px - ox), round(py - oy))

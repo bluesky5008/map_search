@@ -228,6 +228,33 @@ class ReanchorProbeTest(unittest.TestCase):
         _, res = self._reanchor((900, 900))
         self.assertIsNone(res)
 
+    def test_prefers_flat_resource_candidate(self):
+        """절벽·산(미상)은 고도 시차 피킹 위험 — 평지(resource) 셀을 클릭한다."""
+        frame = np.zeros((689, 2546, 3), dtype=np.uint8)
+        scanner = DetailScan.__new__(DetailScan)
+        scanner.nav = _ReanchorNav(frame)
+        scanner.reader = None
+        grid = GridMapper(GridBasis(), (1226.0, 368.0), (800, 800))
+        tracker = _FakeTracker((1, 31))
+        cands = [TileRecord(x=800, y=800, category="unknown"),
+                 TileRecord(x=802, y=799, category="resource")]
+        with mock.patch.object(controller_mod, "_REANCHOR_SETTLE_S", 0), \
+             mock.patch.object(controller_mod, "_read_popup_coords",
+                               lambda *a: (803, 800)), \
+             mock.patch.object(controller_mod, "find_selection_highlight",
+                               lambda *a, **k: None):
+            res = scanner._reanchor(Row(5, (800, 800)), grid, tracker,
+                                    frame.shape, (1, 31), 3, 0,
+                                    candidates=cands)
+        self.assertIsNotNone(res)
+        new_grid, drift = res
+        self.assertEqual(new_grid.anchor_map, (803, 800))
+        self.assertEqual(drift, (1, 1))
+        cx, cy = scanner.nav.clicks[0]
+        px, py = grid.to_screen(802, 799)
+        self.assertAlmostEqual(cx, px - 1, delta=1)
+        self.assertAlmostEqual(cy, py - 31, delta=1)
+
     def test_rejects_read_failure(self):
         _, res = self._reanchor(None)
         self.assertIsNone(res)
