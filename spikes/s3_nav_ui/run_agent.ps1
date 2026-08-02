@@ -1,5 +1,6 @@
-# S-3/S-4 에이전트를 관리자 권한으로 실행한다 (UAC 1회).
-param([string]$Hwnd = "0x40148")
+# Launch the S-3/S-4 command agent elevated (one UAC prompt).
+# Default HWND targets the test client; verify with: mapscan windows --crops <dir>
+param([string]$Hwnd = "0x60042")
 $d = "C:\src\git\map_search\spikes\s3_nav_ui"
 New-Item -ItemType Directory -Force "$d\work" | Out-Null
 $py = "C:\src\git\map_search\.venv\Scripts\python.exe"

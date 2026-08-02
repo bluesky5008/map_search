@@ -1,5 +1,6 @@
-# T12 실기 검증을 관리자 권한으로 실행한다 (UAC 1회).
-param([string]$Hwnd = "0x40148", [string]$Extra = "")
+# Run the T12 live verification elevated (one UAC prompt).
+# Default HWND targets the test client; verify with: mapscan windows --crops <dir>
+param([string]$Hwnd = "0x60042", [string]$Extra = "")
 $d = "C:\src\git\map_search\spikes\s3_nav_ui"
 New-Item -ItemType Directory -Force "$d\work" | Out-Null
 $log = "$d\work\live_check.log"

@@ -15,7 +15,10 @@ from PIL import Image
 from .win import PostMessageInput, WgcCapture, WindowSession, find_client_windows
 
 
-def cmd_windows(_args) -> int:
+ACCOUNT_NAME_RECT = (50, 55, 400, 110)  # 프레임 좌상단 계정명 영역
+
+
+def cmd_windows(args) -> int:
     found = find_client_windows()
     if not found:
         print("대상 창을 찾을 수 없습니다.")
@@ -23,6 +26,14 @@ def cmd_windows(_args) -> int:
     for w in found:
         elev = {True: "elevated", False: "normal", None: "unknown"}[w.elevated]
         print(f"hwnd={w.hwnd:#x} pid={w.pid} rect={w.rect} client={w.client} {elev}")
+        if args.crops:
+            # HWND는 클라이언트 재시작 시 바뀐다. 어느 창이 어느 계정인지
+            # 눈으로 확인할 수 있도록 계정명 영역을 저장한다.
+            with WgcCapture(w.hwnd, w.title) as cap:
+                x0, y0, x1, y1 = ACCOUNT_NAME_RECT
+                path = f"{args.crops}/account_{w.hwnd:#x}.png"
+                Image.fromarray(cap.grab_fresh()[y0:y1, x0:x1]).save(path)
+                print(f"  계정명 저장: {path}")
     return 0
 
 
@@ -96,7 +107,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mapscan")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("windows", help="대상 창 목록").set_defaults(func=cmd_windows)
+    windows = sub.add_parser("windows", help="대상 창 목록")
+    windows.add_argument("--crops", metavar="DIR",
+                         help="창별 계정명 영역을 이 디렉터리에 저장(창 식별용)")
+    windows.set_defaults(func=cmd_windows)
 
     probe = sub.add_parser("probe", help="스캔 창 설정·캡처·클릭·복원 점검")
     probe.add_argument("--hwnd", type=lambda s: int(s, 0))
