@@ -1,0 +1,35 @@
+{
+ "site": "mine",
+ "jump": [
+  350,
+  330
+ ],
+ "samples": [
+  {
+   "i": 0,
+   "map": [
+    345,
+    336
+   ],
+   "occupancy": "ally",
+   "confidence": 0.3,
+   "screen": [
+    396,
+    393
+   ]
+  },
+  {
+   "i": 1,
+   "map": [
+    354,
+    324
+   ],
+   "occupancy": "ally",
+   "confidence": 0.3,
+   "screen": [
+    1957,
+    294
+   ]
+  }
+ ]
+}

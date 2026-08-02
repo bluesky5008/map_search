@@ -1,0 +1,113 @@
+{
+ "site": "occ",
+ "jump": [
+  1020,
+  620
+ ],
+ "samples": [
+  {
+   "i": 0,
+   "map": [
+    1015,
+    626
+   ],
+   "occupancy": "ally",
+   "confidence": 0.3,
+   "screen": [
+    396,
+    393
+   ]
+  },
+  {
+   "i": 1,
+   "map": [
+    1023,
+    614
+   ],
+   "occupancy": "enemy",
+   "confidence": 0.3,
+   "screen": [
+    1858,
+    245
+   ]
+  },
+  {
+   "i": 2,
+   "map": [
+    1015,
+    627
+   ],
+   "occupancy": "ally",
+   "confidence": 0.3,
+   "screen": [
+    340,
+    438
+   ]
+  },
+  {
+   "i": 3,
+   "map": [
+    1023,
+    617
+   ],
+   "occupancy": "enemy",
+   "confidence": 0.3,
+   "screen": [
+    1691,
+    380
+   ]
+  },
+  {
+   "i": 4,
+   "map": [
+    1015,
+    628
+   ],
+   "occupancy": "ally",
+   "confidence": 0.3,
+   "screen": [
+    284,
+    483
+   ]
+  },
+  {
+   "i": 5,
+   "map": [
+    1024,
+    615
+   ],
+   "occupancy": "enemy",
+   "confidence": 0.3,
+   "screen": [
+    1902,
+    339
+   ]
+  },
+  {
+   "i": 6,
+   "map": [
+    1016,
+    625
+   ],
+   "occupancy": "ally",
+   "confidence": 0.3,
+   "screen": [
+    550,
+    397
+   ]
+  },
+  {
+   "i": 7,
+   "map": [
+    1024,
+    618
+   ],
+   "occupancy": "enemy",
+   "confidence": 0.3,
+   "screen": [
+    1735,
+    474
+   ]
+  }
+ ]
+}
