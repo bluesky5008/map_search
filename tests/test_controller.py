@@ -209,6 +209,8 @@ class ReanchorProbeTest(unittest.TestCase):
              mock.patch.object(controller_mod, "_read_popup_coords",
                                lambda *a: read_result), \
              mock.patch.object(controller_mod, "find_selection_highlight",
+                               lambda *a, **k: None), \
+             mock.patch.object(DetailScan, "_save_evidence",
                                lambda *a, **k: None):
             return scanner, scanner._reanchor(
                 Row(5, (800, 800)), grid, tracker, frame.shape, (1, 31),

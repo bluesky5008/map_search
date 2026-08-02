@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 import numpy as np
 
@@ -322,6 +323,7 @@ class DetailScan:
         if not got or abs(got[0] - mx) > win or abs(got[1] - my) > win:
             log.warning("행 %d 재앵커 실패: 예측(%d,%d) 판독%s 허용창±%d",
                         row.index, mx, my, got, win)
+            self._save_evidence(after, px, py, f"reanchor_row{row.index}")
             return None
         ring = find_selection_highlight(after)
         if ring is not None and (abs(ring[0] - px) > _RING_NEAR_PX[0]
@@ -333,6 +335,23 @@ class DetailScan:
                  row.index, mx, my, got, drift[0], drift[1],
                  "" if ring is None else " [링]")
         return GridMapper(grid.basis, tuple(pos), tuple(got)), drift
+
+    def _save_evidence(self, frame, px, py, tag: str) -> None:
+        """판독 실패 팝업 스트립을 사후 글리프 보강용으로 저장한다(설계 §4.4).
+
+        오판독은 타일별로 결정적이라(사실 32) 실패 표본이 곧 템플릿 소스다.
+        저장 실패가 스캔을 막지 않는다."""
+        try:
+            from PIL import Image
+            out = Path("output/evidence")
+            out.mkdir(parents=True, exist_ok=True)
+            crop = frame[max(0, round(py) - 280):round(py) + 40,
+                         max(0, round(px) - 140):round(px) + 340]
+            path = out / f"{tag}_{int(time.time())}.png"
+            Image.fromarray(crop).save(path)
+            log.info("판독 실패 증거 저장: %s", path)
+        except Exception as exc:
+            log.warning("증거 저장 실패(무시): %r", exc)
 
     def _flush(self, scan_id, buffer, drift, n, covered, map_max) -> int:
         """버퍼 레코드에 드리프트를 팬별 선형 보간 보정해 기록한다."""

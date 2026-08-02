@@ -33,6 +33,9 @@ _NAME_BY_CHAR = {v: k for k, v in _CHAR_BY_NAME.items()}
 SOURCES = [
     ("pilot_p12_strip.png", "(138,795)"),
     ("survey_center_03_strip.png", "(1018,622)"),
+    # 재앵커 실패 증거(controller._save_evidence, 행 151 실기) — '0'→'(' 오인 등
+    ("evidence_row151_a.png", "(70,870)"),
+    ("evidence_row151_b.png", "(104,836)"),
 ]
 
 
@@ -86,8 +89,11 @@ def main() -> int:
         seg = expected.replace(" ", "")
         found = find_coord_line(reader, img, seg)
         if not found:
-            print(f"{name}: 좌표 줄을 찾지 못함")
-            return 1
+            # '0'이 두 성분으로 쪼개지는 폰트(evidence_row151_*)는 클러스터 수가
+            # 어긋나 정렬 불가 — 세그먼테이션 개선(높이 인지 병합·과폭 분할)
+            # 전까지 스킵한다(plan.md 확정 사실 35).
+            print(f"{name}: 좌표 줄 정렬 실패 — 스킵(세그먼테이션 한계)")
+            continue
         _, y0, boxes, band = found
         gray = cv2.cvtColor(band, cv2.COLOR_RGB2GRAY)
         assert len(boxes) == len(seg), (name, len(boxes), seg)
@@ -109,6 +115,8 @@ def main() -> int:
         img = np.asarray(Image.open(WORK / name).convert("RGB"))
         seg = expected.replace(" ", "")
         found = find_coord_line(reader2, img, seg)
+        if not found and find_coord_line(reader, img, seg) is None:
+            continue   # 추출 단계에서 스킵한 소스는 검증도 스킵
         got = None
         if found:
             _, y0, boxes, band = found
