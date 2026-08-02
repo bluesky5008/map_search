@@ -40,6 +40,10 @@ class NotInMapMode(RuntimeError):
     """지도 모드가 아니어서 좌표 UI 조작을 중단했다(오클릭 방지)."""
 
 
+class NotDetailView(RuntimeError):
+    """디테일 뷰 시그니처 불일치 — 드래그·클릭을 중단했다(오조작 방지, R-10)."""
+
+
 class StabilizeTimeout(RuntimeError):
     """화면이 제한 시간 안에 안정되지 않았다(설계 §4.4 재시도 대상)."""
 
@@ -129,6 +133,43 @@ class Navigator:
         ox, oy = self.client_offset(frame)
         anchor = (self.ui.JUMP_ANCHOR[0] + ox, self.ui.JUMP_ANCHOR[1] + oy)
         return GridMapper(self.basis, anchor, (mx, my))
+
+    # -- 디테일 뷰·팬 (설계 v3 §4.3) ---------------------------------------
+
+    def capture_detail_ref(self, frame: np.ndarray) -> None:
+        """점프 직후 프레임의 계정 HUD를 디테일 뷰 시그니처 기준으로 삼는다."""
+        self._detail_ref = self._sig_crop(frame)
+
+    def detail_view_score(self, frame: np.ndarray) -> float:
+        if getattr(self, "_detail_ref", None) is None:
+            raise RuntimeError("capture_detail_ref()로 시그니처를 먼저 확보하세요")
+        return float(cv2.matchTemplate(self._sig_crop(frame), self._detail_ref,
+                                       cv2.TM_CCOEFF_NORMED)[0, 0])
+
+    def verify_detail_view(self, frame: np.ndarray) -> float:
+        """디테일 뷰가 아니면 중단한다. 점프 완료 후 지도 UI는 닫혀 있는 것이
+        정상이므로(S-5) 지도 모드 '아님'도 함께 요구한다."""
+        score = self.detail_view_score(frame)
+        if score < self.ui.DETAIL_SIG_THRESHOLD or self.is_map_mode(frame):
+            raise NotDetailView(
+                f"디테일 뷰 아님 (시그니처 {score:.2f}, "
+                f"지도마커 {self.map_mode_score(frame):.2f})")
+        return score
+
+    def pan(self, src: tuple[int, int], dst: tuple[int, int],
+            steps: int = 24) -> np.ndarray:
+        """디테일 뷰 확인 후 드래그 팬을 실행하고 정착된 프레임을 반환한다.
+
+        이동량 산출은 호출자가 PanTracker로 전후 프레임을 대조한다(전단 이동장).
+        """
+        self.verify_detail_view(self.capture.grab_fresh())
+        self.input.drag(*src, *dst, steps=steps)
+        time.sleep(self.ui.PAN_SETTLE_S)
+        return self.capture.grab_fresh()
+
+    def _sig_crop(self, frame: np.ndarray) -> np.ndarray:
+        x0, y0, x1, y1 = self.ui.DETAIL_SIG_RECT
+        return frame[y0:y1, x0:x1]
 
     def detect_map_size(self, upper: int = 2047) -> tuple[int, int]:
         """클램프 동작으로 맵 최대 좌표를 감지한다(FR-02, 설계 §4.2).

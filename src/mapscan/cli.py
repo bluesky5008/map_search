@@ -98,6 +98,36 @@ def cmd_classify(args) -> int:
     return 0
 
 
+def cmd_scan(args) -> int:
+    """MODE-A2 행 기반 전체 스캔 (설계 v3 §4.3). 재실행 시 체크포인트에서 재개."""
+    from .controller import ScanController
+    from .nav import Navigator
+    from .store import DataStore, export_csv
+
+    store = DataStore(args.db)
+    session = WindowSession.attach(args.hwnd)
+    print(f"대상: {session.info()}")
+    with session:
+        client = session.apply_scan_rect()
+        print(f"스캔 창: {client[0]}x{client[1]} (종횡비 {client[0] / client[1]:.2f})")
+        time.sleep(args.settle)
+        with WgcCapture(session.hwnd, session.info().title) as capture:
+            nav = Navigator(capture, PostMessageInput(session.hwnd))
+            ctl = ScanController(nav, store)
+            map_max = tuple(args.map_size) if args.map_size else None
+            summary = ctl.run("A2", map_max=map_max,
+                              resume=not args.new, max_rows=args.max_rows,
+                              start_row=args.start_row, max_pans=args.max_pans)
+    print(f"스캔 {summary['scan_id']} {summary['status']}: "
+          f"{summary['covered']:,}/{summary['total']:,}타일, "
+          f"행 {summary['rows']}개(실패 {summary['row_failures']})")
+    if args.csv and summary["status"] == "done":
+        for path in export_csv(store, summary["scan_id"], args.csv):
+            print(f"CSV 저장: {path}")
+    store.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # 콘솔 기본 코드페이지(cp949)로는 출력할 수 없는 문자가 있어 UTF-8로 고정한다.
     for stream in (sys.stdout, sys.stderr):
@@ -127,6 +157,24 @@ def main(argv: list[str] | None = None) -> int:
                           help="하이라이트가 있는 프레임(기본: --image)")
     classify.add_argument("--csv", help="타일별 결과 CSV 저장 경로")
     classify.set_defaults(func=cmd_classify)
+
+    scan = sub.add_parser("scan", help="MODE-A2 전체 스캔 (행 기반, 재개 가능)")
+    scan.add_argument("--hwnd", type=lambda s: int(s, 0), required=True,
+                      help="대상 창 HWND (mapscan windows --crops 로 확인)")
+    scan.add_argument("--db", default="output/mapscan.db")
+    scan.add_argument("--map-size", type=int, nargs=2, metavar=("MX", "MY"),
+                      help="맵 최대 좌표(생략 시 자동 감지 또는 재개 스캔 값)")
+    scan.add_argument("--max-rows", type=int,
+                      help="이번 실행에서 처리할 최대 행 수(부분 실행·점검용)")
+    scan.add_argument("--start-row", type=int,
+                      help="체크포인트 대신 이 행부터 시작(점검·지정 영역용)")
+    scan.add_argument("--max-pans", type=int,
+                      help="행당 팬 횟수 상한(점검용 — 잔여는 보충·재개 대상)")
+    scan.add_argument("--new", action="store_true",
+                      help="재개하지 않고 새 스캔 시작")
+    scan.add_argument("--settle", type=float, default=2.0)
+    scan.add_argument("--csv", help="완료 시 CSV 내보내기 경로")
+    scan.set_defaults(func=cmd_scan)
 
     args = parser.parse_args(argv)
     return args.func(args)

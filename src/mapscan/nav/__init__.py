@@ -1,9 +1,11 @@
 from .navigator import (
-    Navigator, NotInMapMode, StabilizeTimeout, frame_client_offset,
+    Navigator, NotDetailView, NotInMapMode, StabilizeTimeout,
+    frame_client_offset,
 )
+from .pan import PanTracker, TrackLost
 from .planner import ScanPlanner, Visit
 
 __all__ = [
-    "Navigator", "NotInMapMode", "StabilizeTimeout", "frame_client_offset",
-    "ScanPlanner", "Visit",
+    "Navigator", "NotDetailView", "NotInMapMode", "StabilizeTimeout",
+    "frame_client_offset", "PanTracker", "TrackLost", "ScanPlanner", "Visit",
 ]
