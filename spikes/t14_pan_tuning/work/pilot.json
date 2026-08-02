@@ -1,0 +1,175 @@
+{
+ "row": 150,
+ "reanchor_every": 3,
+ "events": [
+  {
+   "pan": 1,
+   "a": -395.9,
+   "b": -0.2784,
+   "rejected": []
+  },
+  {
+   "pan": 2,
+   "a": -1777.4,
+   "b": -0.4333,
+   "rejected": [
+    0
+   ]
+  },
+  {
+   "pan": 3,
+   "a": -1562.9,
+   "b": -0.9086,
+   "rejected": []
+  },
+  {
+   "pan": 3,
+   "reanchor": true,
+   "predicted": [
+    37,
+    892
+   ],
+   "read": [
+    36,
+    896
+   ],
+   "ring": [
+    1333.8,
+    362.6
+   ],
+   "applied": true
+  },
+  {
+   "pan": 4,
+   "a": -1499.8,
+   "b": -1.0595,
+   "rejected": []
+  },
+  {
+   "pan": 5,
+   "a": -1516.2,
+   "b": -1.0266,
+   "rejected": []
+  },
+  {
+   "pan": 6,
+   "a": -1937.1,
+   "b": -0.1444,
+   "rejected": [
+    0
+   ]
+  },
+  {
+   "pan": 6,
+   "reanchor": true,
+   "predicted": [
+    72,
+    857
+   ],
+   "read": [
+    70,
+    862
+   ],
+   "ring": [
+    1313.8,
+    360.1
+   ],
+   "applied": true
+  },
+  {
+   "pan": 7,
+   "a": -1557.1,
+   "b": -0.9455,
+   "rejected": []
+  },
+  {
+   "pan": 8,
+   "a": -1483.1,
+   "b": -1.1486,
+   "rejected": []
+  },
+  {
+   "pan": 9,
+   "a": -1957.5,
+   "b": -0.0889,
+   "rejected": [
+    0
+   ]
+  },
+  {
+   "pan": 9,
+   "reanchor": true,
+   "predicted": [
+    106,
+    823
+   ],
+   "read": [
+    104,
+    828
+   ],
+   "ring": null,
+   "applied": true
+  },
+  {
+   "pan": 10,
+   "a": -1543.9,
+   "b": -1.0111,
+   "rejected": [
+    0
+   ]
+  },
+  {
+   "pan": 11,
+   "a": -1715.9,
+   "b": -0.195,
+   "rejected": []
+  },
+  {
+   "pan": 12,
+   "a": -1478.8,
+   "b": -1.127,
+   "rejected": []
+  },
+  {
+   "pan": 12,
+   "reanchor": true,
+   "predicted": [
+    139,
+    790
+   ],
+   "read": null,
+   "ring": null,
+   "applied": false
+  },
+  {
+   "truth": "top",
+   "predicted": [
+    136,
+    790
+   ],
+   "read": [
+    137,
+    792
+   ],
+   "err": [
+    1,
+    2
+   ]
+  },
+  {
+   "truth": "bottom",
+   "predicted": [
+    141,
+    790
+   ],
+   "read": [
+    139,
+    795
+   ],
+   "err": [
+    -2,
+    5
+   ]
+  }
+ ]
+}

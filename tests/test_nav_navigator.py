@@ -116,6 +116,21 @@ class WaitStableTest(unittest.TestCase):
             nav.wait_stable(timeout=0.3)
 
 
+class JumpCapture:
+    """GO 클릭 시점부터 지도 모드가 닫히는 상태 기반 캡처.
+
+    ignore_go: 처음 n회의 GO 클릭을 무시한다(선택 팝업 잔류 재현, T14 실기).
+    """
+
+    def __init__(self, inp: FakeInput, ignore_go: int = 0):
+        self.inp = inp
+        self.ignore_go = ignore_go
+
+    def grab_fresh(self, timeout=2.0):
+        go_clicks = sum(1 for c in self.inp.calls if c == ("click", 95, 40))
+        return make_frame(map_mode=go_clicks <= self.ignore_go)
+
+
 class JumpTest(unittest.TestCase):
     def test_refuses_when_not_in_map_mode(self):
         with self.assertRaises(NotInMapMode):
@@ -123,7 +138,9 @@ class JumpTest(unittest.TestCase):
 
     def test_jump_clears_field_before_typing(self):
         inp = FakeInput()
-        grid = nav_with([make_frame()], inp).jump(123, 456)
+        nav = Navigator(JumpCapture(inp), inp, ui_cfg=FakeUi,
+                        map_mode_template=TEMPLATE)
+        grid = nav.jump(123, 456)
         self.assertEqual(inp.calls, [
             ("click", 80, 40), ("key", VK_END, 1), ("key", VK_BACK, 12), ("type", "123"),
             ("click", 90, 40), ("key", VK_END, 1), ("key", VK_BACK, 12), ("type", "456"),
@@ -133,6 +150,49 @@ class JumpTest(unittest.TestCase):
         self.assertEqual(grid.anchor_px, (51.0, 31.0))  # JUMP_ANCHOR + 프레임 오프셋
         self.assertEqual(grid.anchor_map, (123, 456))
         self.assertEqual(grid.nearest_tile(51.0, 31.0), (123, 456))
+
+    def test_jump_reclicks_go_when_ignored(self):
+        """선택 팝업이 열려 있으면 첫 GO가 무시된다(T14 실기) — 재클릭해야 한다."""
+        inp = FakeInput()
+        nav = Navigator(JumpCapture(inp, ignore_go=1), inp, ui_cfg=FakeUi,
+                        map_mode_template=TEMPLATE)
+        grid = nav.jump(7, 8)
+        self.assertEqual(sum(1 for c in inp.calls if c == ("click", 95, 40)), 2)
+        self.assertEqual(grid.anchor_map, (7, 8))
+
+    def test_jump_gives_up_when_go_never_works(self):
+        inp = FakeInput()
+        nav = Navigator(JumpCapture(inp, ignore_go=99), inp, ui_cfg=FakeUi,
+                        map_mode_template=TEMPLATE)
+        with self.assertRaises(StabilizeTimeout):
+            nav.jump(7, 8)
+
+    def test_jump_tolerates_unstable_animation_when_map_closed(self):
+        """수면 애니메이션 지역: 안정화 실패라도 지도 모드가 닫혔으면 점프 완료."""
+        import mapscan.nav.navigator as nav_mod
+
+        class AnimatedCapture(JumpCapture):
+            def __init__(self, inp):
+                super().__init__(inp)
+                self.i = 0
+
+            def grab_fresh(self, timeout=2.0):
+                f = super().grab_fresh()
+                self.i += 1
+                f[40:60, 40:100] = (self.i * 40) % 250   # 상시 대규모 변화
+                return f
+
+        inp = FakeInput()
+        nav = Navigator(AnimatedCapture(inp), inp, ui_cfg=FakeUi,
+                        map_mode_template=TEMPLATE)
+        nav.wait_stable = lambda *a, **k: Navigator.wait_stable(nav, timeout=0.3)
+        old = nav_mod._JUMP_ANIM_SETTLE_S
+        nav_mod._JUMP_ANIM_SETTLE_S = 0.0
+        try:
+            grid = nav.jump(3, 4)
+        finally:
+            nav_mod._JUMP_ANIM_SETTLE_S = old
+        self.assertEqual(grid.anchor_map, (3, 4))
 
 
 class DetectMapSizeTest(unittest.TestCase):

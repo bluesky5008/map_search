@@ -147,7 +147,11 @@ class DetailScan:
             frame = self.nav.pan(src, dst, steps=12 if k == 0 else 24)
             self.watchdog.check(frame)
             try:
-                tracker.update(prev, frame, dst[0] - src[0])
+                info = tracker.update(prev, frame, dst[0] - src[0])
+                # raw 텔레메트리 — 기각 규칙 튜닝·사후 원인 분석용(T14)
+                log.info("행 %d 팬 #%d: a=%s b=%s raw=%s rejected=%s expect=%s",
+                         row.index, k + 1, info["a"], info["b"], info["raw"],
+                         info["rejected"], info["expect"])
             except TrackLost as exc:
                 # 확보한 타일은 유지된다 — 행을 조기 종료하고 잔여는 다음 행
                 # 겹침·보충 방문이 커버한다. 재시도해도 같은 내용이라 무익하다.

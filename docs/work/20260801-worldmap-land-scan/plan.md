@@ -11,9 +11,9 @@
 |---|---|
 | 요구사항·설계 | **v3 승인 (2026-08-02, DCR-003)** — NFR-02 = 48시간(기준선 33~36시간), 팬 이동 설계(행 기반 루프·전단 추적·대역 한정 분류) 반영. DCR-002는 반영 완료 |
 | 스파이크 | S-1·S-2 완료. **S-3 완료**(입력란 조작·클램프 감지), **S-4 완료**(팝업은 닫을 수 없음 → 겹침 커버 유지), **S-5 완료·통과**(드래그 팬 실현 가능 — 아래 확정 사실 15~19, `spikes/s5_drag_pan/findings.md`), **S-6 재측정 완료**(방문 99회 — 광폭 팬 2.95s/68.2타일, 총 33~36시간, `spikes/s6_remeasure/findings.md`) |
-| 구현 완료 | T8 골격, T10 store, T9 win, T11 vision, T12 nav, **T13 controller/cli**, 부가 도구 |
-| **다음 작업** | **T14 검증** — AC 수행·기록, 템플릿 실기 수집(점령형 + 겨울 팝업 글리프), **팬 추적 기각 튜닝**(간헐 TrackLost 원인 분석 — 행 중간 조기 종료 빈도가 보충 부담을 좌우), 경계 점프 앵커 검증, 기저 y-의존 실측, 전체 스캔 완주 → NFR-02(48h) 최종 판정 |
-| 테스트 | `python -m unittest discover -s tests` — 64건 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
+| 구현 완료 | T8 골격, T10 store, T9 win, T11 vision, T12 nav, **T13 controller/cli**, 부가 도구. T14 경미 수정 4건(이중 앵커 기각·팬 텔레메트리·점프 GO 재클릭·수면 안정화 폴백) |
+| **다음 작업** | **[DCR-004](changes/DCR-004-reanchor-coordinate-integrity.md) 사용자 승인 대기** — 좌표 무결성(주기 재앵커 + 지연 기록). 승인 후: 설계 v4 반영 → controller 재앵커 구현 → 행 150 완주 검증. 병행 가능: T14.3 템플릿(봄 글리프·점령형), FR-07 병합, AC 기록. 상세는 "작업 결과 — T14(진행 중)" |
+| 테스트 | `python -m unittest discover -s tests` — **78건** 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
 | 실기 확정값 | **맵 크기 1619×1619**(자동 감지 성공), 스캔 창 클라이언트 2544×657 |
 | 테스트 클라이언트 | **계정 羊커리** (2026-08-02 기준 hwnd `0x60042`). HWND는 재시작 시 바뀌므로 `mapscan windows --crops <dir>`로 계정명 크롭을 저장해 확인한다 |
 | 커밋 | main 브랜치, origin 푸시 완료 |
@@ -25,7 +25,7 @@
 - 관련 요구사항: [requirements.md](requirements.md) v3 — FR-01, FR-02, FR-03b, FR-05, FR-07~12, NFR-01~06
 - 관련 설계: [design.md](design.md) v3 (2026-08-02 팬 이동 전략·S-5/S-6 실측 반영)
 - 관련 ADR: ADR-001(스택), ADR-002(캡처·입력 + T12 실측 보완), ADR-003(저장), ADR-004(모드 구조), ADR-005(창 종횡비 + 실측 보완), **[ADR-006](decisions/ADR-006-map-size-detection.md)(맵 크기 감지 — 신규)**
-- 관련 DCR: [DCR-001](changes/DCR-001-mode-a-zoom-limits.md) 승인 — v1 구현 범위는 **MODE-A2만** / [DCR-002](changes/DCR-002-scan-throughput.md) 반영 완료(안 d) / **[DCR-003](changes/DCR-003-nfr02-final-pan-design.md) 승인(2026-08-02) — NFR-02 48시간 확정 + 팬 이동 설계 v3**
+- 관련 DCR: [DCR-001](changes/DCR-001-mode-a-zoom-limits.md) 승인 — v1 구현 범위는 **MODE-A2만** / [DCR-002](changes/DCR-002-scan-throughput.md) 반영 완료(안 d) / **[DCR-003](changes/DCR-003-nfr02-final-pan-design.md) 승인(2026-08-02) — NFR-02 48시간 확정 + 팬 이동 설계 v3** / **[DCR-004](changes/DCR-004-reanchor-coordinate-integrity.md) 초안(2026-08-02) — 좌표 무결성(주기 재앵커 + 지연 기록), 승인 대기**
 - 구현 중 수단이 바뀐 항목(경미한 변경)은 [design-change-log.md](design-change-log.md)에 이유와 함께 정리했다.
 
 ## 스파이크 확정 사실 (구현 제약)
@@ -76,9 +76,36 @@
 - [x] T11. vision 계층 — **완료.** GridMapper(평행사변형 격자·하이라이트 앵커·가시 셀 열거), TileClassifier(점령색 판별 + 템플릿 매칭 + 지형 휴리스틱 + 미상 보수 처리), DigitReader(글리프 판독), 템플릿 자산(`assets/templates/`), CLI `classify` 점검 명령. 단위·회귀 테스트 20건 추가(총 40건). 상세는 아래 "작업 결과 — T11"
 - [x] T12. nav 계층 — **완료.** Navigator(지도 모드 검증·좌표 점프·안정화·맵 크기 감지), ScanPlanner(잉여류 타일링 방문 계획·보충·재개), UI 캘리브레이션 상수, S-3/S-4 스파이크. 상세는 "작업 결과 — T12"
 - [x] T13. controller/cli — **완료** (2026-08-02). 행 기반(설계 v3 §4.3) ScanController + DetailScan(A2, A1/B/C는 NotImplemented), Watchdog(빈·검은 프레임·크기 변경), 진행률(행·커버·ETA)·체크포인트 재개, CLI `scan`(--max-rows/--start-row/--max-pans 부분 실행). 신규: `nav/pan.py` PanTracker(전단 적합 + 점수 하한 0.08·기대 창 ±150px·leave-one-out·기울기 물리 범위 4중 기각), `Navigator.pan`+디테일 뷰 시그니처 검증, `watchdog.py`, ui.py v3 상수. 상세는 "작업 결과 — T13"
-- [ ] T14. 검증 — AC-01/02/03/05/06/07 수행·기록, 템플릿 실기 수집(점령형 + **겨울 팝업 좌표 글리프**), 밴드 기각 동작 검증, 기저 y-의존 실측(분류 대역 확대 판단), 전체 스캔 1회 완주 → NFR-02(48시간) 최종 판정
+- [ ] T14. 검증 — **진행 중** (상세: "작업 결과 — T14"). 완료: 기각 튜닝(이중 앵커)·경계 앵커(서변)·기저 실측·점프 결함 2건 수정·재앵커 파일럿. **대기: DCR-004 승인** → controller 재앵커 구현. 잔여: 템플릿 수집(봄 글리프·점령형·내땅), FR-07 병합, AC-01/02/03/05/06/07 기록, 지정 영역→전체 스캔 → NFR-02(48시간) 최종 판정
 - [ ] T15. 통합·자체 리뷰·최종 보고, README 갱신
 - [x] T15a. 문서 일괄 갱신 (2026-08-02) — requirements/design/ADR-002·005/README/스파이크 findings에 T11·T12 실측 반영, ADR-006·DCR-002 신규, 변경 이력에 경미 변경 표 추가
+
+### 작업 결과 — T14 (진행 중, 2026-08-02)
+
+T14.1(기각 튜닝) 원인 규명 중 **추측항법 좌표 드리프트**를 발견 —
+[DCR-004](changes/DCR-004-reanchor-coordinate-integrity.md) 초안 발행, 승인 대기.
+증거·도구는 `spikes/t14_pan_tuning/` (capture_row·analyze·survey·pilot_reanchor + findings.md).
+
+- 반영(경미, 기준선 내): `nav/pan.py` **이중 앵커 기각**(게인 ±250 또는 직전 실측 ±150 —
+  직전 단일 앵커 ±150이 정상 측정을 버려 행 150 조기 종료를 유발했음, `ui.PAN_GAIN_TOLERANCE_PX` 신설),
+  `controller.py` 팬별 raw 텔레메트리 INFO 로그, `nav/navigator.py` **점프 GO 재클릭**(팝업 열림 시
+  GO 무시 — 보충 방문 연속 점프 경로 결함) + **수면 애니메이션 고정 대기 폴백**(강 지역 StabilizeTimeout).
+  테스트 4건 추가(총 78건)
+- T14.2(경계 앵커): **서쪽 변 (0,922) 클램프 없음 확인**(판독 5/6 정합 ≤1타일). 모서리·타 변은 미확인
+- T14.4(기저 실측): 기저 y-성분의 **지역 의존 확인** — 아래 확정 사실 26. BAND_Y 확대 판단은 DCR-004(재앵커) 반영 후 재평가
+- T14.3(템플릿): 테마가 겨울→봄으로 변경됨. 봄 팝업 좌표는 기존 글리프로 ~85~90% 판독.
+  측량 스트립 30여 장이 `spikes/t14_pan_tuning/work/`에 있어 변형 글리프 소스로 사용 가능. 점령형 스프라이트·내땅 테두리는 미수집
+
+**T14 실기로 확정된 사실:**
+
+| # | 사실 | 영향 |
+|---|---|---|
+| 26 | **기저 E_MX/E_MY의 y-성분은 맵 지역 의존** — NW에서 u-스텝당 c-방향 ~2.5px 오차. 한 화면 안은 ±1타일이나 행 이동 누적 시 팬당 my +1.3~1.7타일. 행 150에서 10팬 후 실측 (mx +2..+11, my −11..−21)타일 | 추측항법만으로는 좌표 기록 불성립 → DCR-004(주기 재앵커 + 지연 기록) |
+| 27 | **dx(y) 이동장은 지형 고도(시차 레이어)로 ~±100px 계단 불연속** — 3밴드 선형 적합 기울기 진동(-0.09~-1.15), LOO가 정직한 밴드를 기각하기도 함 | 재앵커 도입 후 추적 밴드 재설계 필요성 재평가 |
+| 28 | **강(수면 애니메이션) 지역**: 추적 NCC 0.03~0.3, `wait_stable` 상시 시간초과 | 점프 폴백 구현 완료. TrackLost 잔존은 재앵커로 복구 |
+| 29 | **선택 팝업이 열린 채 GO 클릭은 무시된다**(지도 모드 잔류) | `Navigator.jump` GO 재클릭 구현 완료 |
+| 30 | 봄 테마 팝업 좌표 판독 성공률 ~85~90%, **"3"↔"8" 오판독 실례 1건** | 재앵커 판독에 새니티 창 필수(파일럿 구현). T14.3에서 글리프 보강 |
+| 31 | **주기(3팬) 클릭 재앵커 파일럿 성공** — 드리프트 (−1..−2,+4..+5)/3팬 흡수, TrackLost 변위 유실(+11)도 다음 사이클 복구, 재앵커 적용 시 잔여 ≤1타일 | DCR-004 권고안의 실증 근거 |
 
 ### 작업 결과 — T13 (완료, 2026-08-02)
 
@@ -197,6 +224,12 @@
 | T13 단위 (controller) | `tests/test_controller.py` 5건 — 행 계획 결정성·경계 인셋·c 커버, 대역 한정 분류+중복 제거+upsert, 팝업 제외, 미구현 모드 거부 | **전부 통과** | 동일 |
 | T13 실기 (중앙 행) | 관리자 권한 `mapscan scan --hwnd 0x60042 --start-row 150 --max-rows 1 --max-pans 12` | **통과** — 점프 재앵커 + 광폭 팬 10회, **750타일/38s** 기록, 팬 #11 추적 손실 시 행 조기 종료(실패 0), 창 배치 복원 | `output/t13_check3.log`, `output/t13_check.db` |
 | T13 실기 (경계 안전망) | 동일, `--start-row 268 --max-pans 6` (남쪽 경계 인접) | **통과** — 전단 기울기 이상(b=+0.39) 감지 → 좌표 오염 없이 조기 종료, 99타일 유지 | 동일 로그 |
+| T14 이중 앵커 기각 (단위) | `tests/test_nav_pan.py` 실기 회귀 — 직전 대비 160px 변동이라도 게인 근방·상호 정합이면 유효 | **통과** ("Ran 78 tests ... OK") | `test_wide_pan_far_from_last_but_near_gain_is_kept` |
+| T14 이중 앵커 기각 (실기) | 행 150 재실행(`--start-row 150 --max-rows 1 --max-pans 12`) — 팬별 텔레메트리 확보 | **개선 확인** — 구 규칙이 기각하던 정상 측정(팬 #7 밴드0) 유지. 조기 종료는 수면 저점수 팬(#10)으로 이동(사실 28) | `output/t14_check.db`, res 로그 |
+| T14 점프 GO 재클릭·수면 폴백 (단위) | `tests/test_nav_navigator.py` 3건 — GO 무시 재현·재클릭, 포기 경로, 애니메이션 허용 | **통과** | JumpTest 신규 3건 |
+| T14.2 서쪽 경계 앵커 | (0,922) 점프 후 화면 6점 클릭 → 팝업 좌표 대조 | **클램프 없음** — 5/6 정합(≤1타일), 1건은 판독 오류 추정 | `spikes/t14_pan_tuning/work/survey.json` |
+| T14.4 기저 지역 의존 | 클릭-그리드 측량(center/rowstart/west) + 행 150 지상 진실 | **확인** — 확정 사실 26. 국소 ±1타일, 행 누적 시 팬당 my +1.3~1.7 | survey.json, click_top/bottom_strip.png |
+| T14 재앵커 파일럿 | 행 150, 12팬, 3팬마다 클릭 재앵커 | **성공** — 드리프트 흡수·TrackLost 복구, 미적용 사이클만 잔여(≤(2,5)) | `spikes/t14_pan_tuning/work/pilot.json` |
 
 ## 구현 중 확정된 환경 제약 (재발 방지)
 

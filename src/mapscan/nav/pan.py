@@ -5,8 +5,9 @@ S-5 발견 3). 전폭 밴드 3개의 x 이동을 재서 dx(y) = a + b·y 로 적
 셀 위치는 대역별 이동량으로 갱신한다.
 
 눈(겨울) 지형은 추적 NCC가 낮아 간헐 오추적이 있다(S-6 관찰 1, R-12).
-기대치(캘리브레이션 게인 또는 직전 실측) 대비 TRACK_TOLERANCE_PX 밖 밴드는
-기각하고 남은 밴드로 적합한다. 유효 밴드가 2개 미만이면 TrackLost — 호출자는
+밴드 기각은 이중 앵커(T14 튜닝): 게인 기대 ±PAN_GAIN_TOLERANCE_PX **또는**
+직전 실측 ±TRACK_TOLERANCE_PX 안이면 유효, 둘 다 밖이거나 저점수면 기각하고
+남은 밴드로 적합한다. 유효 밴드가 2개 미만이면 TrackLost — 호출자는
 행을 중단하고 점프로 재앵커한다(오염 전파를 행 내로 한정).
 """
 
@@ -55,20 +56,25 @@ class PanTracker:
         ox, oy = self.offset
         last = self._last.get(cmd_dx)
         search = _NARROW_SEARCH if last else _WIDE_SEARCH
-        pts, raw, rejected = [], [], []
+        pts, raw, rejected, expects = [], [], [], []
         for i, (y0, h) in enumerate(ui.TRACK_BANDS):
             yc = y0 + h / 2
-            expect = last[i] if last else cmd_dx * pan_gain(yc)
+            gain_dx = cmd_dx * pan_gain(yc)
             dx, dy, score = _band_shift(prev, cur, (y0, h), (ox, oy),
-                                        expect, search)
+                                        last[i] if last else gain_dx, search)
             raw.append((round(dx, 1), round(dy, 1), round(score, 3)))
-            tol = ui.TRACK_TOLERANCE_PX + (search - _NARROW_SEARCH)
-            if score < _MIN_SCORE or abs(dx - expect) > tol:
+            expects.append((round(gain_dx), round(last[i]) if last else None))
+            # 이중 앵커(T14 튜닝): 게인 기대 근방 또는 직전 실측 근방이면 유효.
+            # 직전 팬 단일 앵커는 정상 팬별 변동의 연속 차이를 기각했다(행 150).
+            ok_gain = abs(dx - gain_dx) <= ui.PAN_GAIN_TOLERANCE_PX
+            ok_last = last is not None and abs(dx - last[i]) <= ui.TRACK_TOLERANCE_PX
+            if score < _MIN_SCORE or not (ok_gain or ok_last):
                 rejected.append(i)
                 continue
             pts.append((yc + oy, dx, i))
         if len(pts) < 2:
-            raise TrackLost(f"추적 밴드 부족: raw={raw} rejected={rejected}")
+            raise TrackLost(f"추적 밴드 부족: raw={raw} "
+                            f"expect(게인,직전)={expects} rejected={rejected}")
         # 3밴드면 leave-one-out 검정으로 오염 밴드를 찾는다 — 3점 최소제곱
         # 잔차는 이상치가 적합선을 끌어당겨 판별력이 없다.
         if len(pts) == 3:
@@ -93,7 +99,7 @@ class PanTracker:
         self._last[cmd_dx] = [float(a + b * (y0 + h / 2 + oy))
                               for y0, h in ui.TRACK_BANDS]
         return {"a": round(float(a), 1), "b": round(float(b), 4),
-                "raw": raw, "rejected": rejected}
+                "raw": raw, "rejected": rejected, "expect": expects}
 
 
 def _band_shift(prev, cur, band, offset, expect, search):

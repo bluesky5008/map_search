@@ -80,6 +80,35 @@ class PanTrackerTest(unittest.TestCase):
         self.assertAlmostEqual(pan_gain(127), 0.853, places=3)
         self.assertAlmostEqual(pan_gain(466), 1.0, places=3)
 
+    def test_wide_pan_far_from_last_but_near_gain_is_kept(self):
+        """행 150 실기 회귀: 팬별 이동이 직전 팬에서 150px 넘게 벗어나도
+        게인 기대 근방이고 상호 정합하면 유효하다(이중 앵커, T14 튜닝).
+
+        광폭 팬은 새 콘텐츠가 우측에서 진입하므로(역방향 매칭) 프레임을
+        파노라마에서 창으로 잘라 만든다 — 같은 프레임을 두 번 밀면 콘텐츠가
+        전부 화면 밖으로 나가 검은 영역이 오매칭된다."""
+        pano_w = W + 4500
+        coarse = RNG.integers(0, 255, size=(H // 8 + 2, pano_w // 8 + 2, 3),
+                              dtype=np.uint8)
+        pano = cv2.resize(coarse, (pano_w, H), interpolation=cv2.INTER_LINEAR)
+
+        def window(s_a: float, s_b: float) -> np.ndarray:
+            out = np.zeros((H, W, 3), dtype=pano.dtype)
+            for y in range(H):
+                s = int(round(s_a + s_b * y))
+                out[y] = pano[y, s:s + W]
+            return out
+
+        f0 = window(0, 0)
+        f1 = window(1580, 0.4)          # dx(y) = -1580-0.4y, |측정-게인| 15~104px
+        f2 = window(1580 + 1740, 0.8)   # 팬별 이동 변동 160px (직전±150 창 밖)
+        tracker = PanTracker(OFFSET)
+        tracker.update(f0, f1, -1900)
+        info = tracker.update(f1, f2, -1900)  # 구 규칙(직전 단일 앵커)은 TrackLost
+        self.assertEqual(info["rejected"], [], info)
+        want = (-1580 - 0.4 * 366) + (-1740 - 0.4 * 366)
+        self.assertLess(abs(tracker.shift_at(366) - want), 8.0, info)
+
 
 if __name__ == "__main__":
     unittest.main()

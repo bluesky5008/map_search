@@ -29,6 +29,7 @@ MAP_MODE_TEMPLATE = (Path(__file__).resolve().parents[3]
 
 _DIFF_PER_PIXEL = 12     # 픽셀이 "변했다"고 보는 채널 합 차이
 _STABLE_FRACTION = 0.05  # 변한 픽셀 비율이 이 미만이면 정지 프레임
+_JUMP_ANIM_SETTLE_S = 1.2  # 안정화 불가 지역(수면 애니메이션)의 점프 후 고정 대기
 _FIELD_MAX_DIGITS = 12   # 입력란을 비울 때 보낼 백스페이스 수
 VK_BACK, VK_END = 0x08, 0x23
 
@@ -125,11 +126,30 @@ class Navigator:
 
         점프 후에는 선택 하이라이트 링이 그려지지 않으므로(T12 실측) 대상 타일이
         놓이는 고정 화면 위치(ui.JUMP_ANCHOR)를 앵커로 쓴다.
+
+        T14 실기 보완 2건: ① 선택 팝업이 열린 상태에서는 첫 GO 클릭이 무시되어
+        지도 모드가 잔류한다 — GO를 재클릭한다(보충 방문의 연속 점프에서 발생).
+        ② 수면(강) 애니메이션 지역은 화면이 계속 변해 안정화가 시간초과된다 —
+        지도 모드가 닫혔으면 점프는 완료된 것이므로 고정 대기로 대체한다.
         """
         self.enter_map_mode()
         self._set_coords(mx, my)
-        self._click_verified(self.ui.GO_BUTTON)
-        frame = self.wait_stable()
+        for _ in range(3):
+            self._click_verified(self.ui.GO_BUTTON)
+            try:
+                frame = self.wait_stable()
+            except StabilizeTimeout:
+                frame = self.capture.grab_fresh()
+                if self.is_map_mode(frame):
+                    continue          # GO 무시 — 재클릭
+                time.sleep(_JUMP_ANIM_SETTLE_S)   # 상시 애니메이션 지역
+                frame = self.capture.grab_fresh()
+                break
+            if not self.is_map_mode(frame):
+                break
+            log.warning("점프 (%d,%d): GO 후에도 지도 모드 — 재클릭", mx, my)
+        else:
+            raise StabilizeTimeout(f"점프 ({mx},{my}): GO 재클릭 후에도 지도 모드 잔류")
         ox, oy = self.client_offset(frame)
         anchor = (self.ui.JUMP_ANCHOR[0] + ox, self.ui.JUMP_ANCHOR[1] + oy)
         return GridMapper(self.basis, anchor, (mx, my))
