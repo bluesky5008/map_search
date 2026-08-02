@@ -199,10 +199,13 @@ class TileClassifier:
         red = ((hh <= 8) | (hh >= 172)) & (ss >= 120) & (vv >= 80)
         blue = (hh >= 90) & (hh <= 130) & (ss >= 70) & (vv >= 90)
         green = (hh >= 40) & (hh <= 75) & (ss >= 150) & (vv >= 170)
-        scores = {
-            "enemy": red.sum() / n / _RED_MIN_FRACTION,
-            "mine": green.sum() / n / _GREEN_MIN_FRACTION,
-        }
+        scores = {"enemy": red.sum() / n / _RED_MIN_FRACTION}
+        # 파랑·초록은 마주보는 변 쌍 규칙 필수 — 강·인접 스프라이트(밭 등)
+        # 번짐 오탐은 한쪽 변에만 나타난다(T14 실기: 무주 공터 2건이 mine으로
+        # 오탐 — 팬 중 밴드 위치 오차로 인접 밭의 밝은 초록이 샘플링됨)
+        green_frac = green.sum() / n / _GREEN_MIN_FRACTION
+        if green_frac >= 1 and self._opposite_sides(green, sides):
+            scores["mine"] = green_frac
         blue_frac = blue.sum() / n / _BLUE_MIN_FRACTION
         if blue_frac >= 1 and self._opposite_sides(blue, sides):
             label = "ally" if np.median(vv[blue]) < _BLUE_ALLY_MAX_VAL else "friendly"

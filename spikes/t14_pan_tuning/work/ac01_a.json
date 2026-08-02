@@ -1,0 +1,139 @@
+{
+ "db": "C:\\src\\git\\map_search\\output\\ac03.db",
+ "scan": 1,
+ "jump": [
+  181,
+  800
+ ],
+ "checks": [
+  {
+   "i": 0,
+   "record": {
+    "x": 174,
+    "y": 808,
+    "category": "resource",
+    "kind": "공터",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": [
+    174,
+    808
+   ],
+   "xy_match": true
+  },
+  {
+   "i": 1,
+   "record": {
+    "x": 178,
+    "y": 802,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": [
+    178,
+    803
+   ],
+   "xy_match": false
+  },
+  {
+   "i": 2,
+   "record": {
+    "x": 175,
+    "y": 807,
+    "category": "resource",
+    "kind": "공터",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  },
+  {
+   "i": 3,
+   "record": {
+    "x": 178,
+    "y": 803,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  },
+  {
+   "i": 4,
+   "record": {
+    "x": 176,
+    "y": 807,
+    "category": "resource",
+    "kind": "공터",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": [
+    176,
+    807
+   ],
+   "xy_match": true
+  },
+  {
+   "i": 5,
+   "record": {
+    "x": 179,
+    "y": 804,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  },
+  {
+   "i": 6,
+   "record": {
+    "x": 177,
+    "y": 806,
+    "category": "resource",
+    "kind": "공터",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  },
+  {
+   "i": 7,
+   "record": {
+    "x": 185,
+    "y": 793,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  }
+ ]
+}

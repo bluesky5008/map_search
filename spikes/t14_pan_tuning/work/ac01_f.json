@@ -1,0 +1,58 @@
+{
+ "db": "C:\\src\\git\\map_search\\output\\ac03.db",
+ "scan": 1,
+ "jump": [
+  110,
+  828
+ ],
+ "checks": [
+  {
+   "i": 0,
+   "record": {
+    "x": 115,
+    "y": 825,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "mine",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  },
+  {
+   "i": 1,
+   "record": {
+    "x": 106,
+    "y": 834,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "ally",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": [
+    0,
+    833
+   ],
+   "xy_match": false
+  },
+  {
+   "i": 2,
+   "record": {
+    "x": 103,
+    "y": 836,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  }
+ ]
+}

@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from mapscan.win import session as sess
@@ -44,6 +46,8 @@ class ScanRectLifecycleTest(unittest.TestCase):
     def setUp(self):
         self.original = (100, 200, 1294, 758)
         self.set_calls: list[tuple] = []
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
 
         def fake_set(hwnd, x, y, w, h):
             self.set_calls.append((x, y, w, h))
@@ -54,6 +58,7 @@ class ScanRectLifecycleTest(unittest.TestCase):
             mock.patch.object(sess.win32, "set_window_rect", side_effect=fake_set),
             mock.patch.object(sess.win32, "client_size", return_value=(2544, 657)),
             mock.patch.object(sess.win32, "work_area", return_value=(0, 0, 5120, 1392)),
+            mock.patch.object(sess, "_STATE_DIR", Path(self.tmp.name)),
         ]
         for p in self.patches:
             p.start()
@@ -101,6 +106,22 @@ class ScanRectLifecycleTest(unittest.TestCase):
              mock.patch.object(sess.win32, "last_error", return_value=5):
             with self.assertLogs(sess.log, level="ERROR"):
                 self.assertFalse(s.restore())
+
+    def test_original_rect_survives_hard_kill(self):
+        # 강제 종료 시나리오(T14 실기): 1차 세션이 복원 없이 죽어도 2차 세션이
+        # 영속 기록에서 원래 배치를 이어받아 복원한다. 스캔 위치가 '원래
+        # 배치'로 오인되면 사용자 배치가 유실된다.
+        s1 = sess.WindowSession(1)
+        s1.apply_scan_rect()          # 원래 배치 기록 후 (2560,0)으로 이동
+        del s1                        # restore 없이 소멸 = 강제 종료
+        with mock.patch.object(sess.win32, "window_rect",
+                               return_value=(2560, 0, 2560, 696)):
+            s2 = sess.WindowSession(1)
+            s2.apply_scan_rect()      # 현재 창은 스캔 위치에 있다
+        self.assertTrue(s2.restore())
+        self.assertEqual(self.set_calls[-1], self.original)
+        # 복원 성공으로 영속 기록이 지워져 다음 세션은 새로 기록한다
+        self.assertFalse(s2._state_path().is_file())
 
 
 class AttachTest(unittest.TestCase):

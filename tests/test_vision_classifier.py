@@ -122,6 +122,29 @@ class FieldSampleRegressionTest(unittest.TestCase):
         r = self._classify("tiles_occ_05")
         self.assertEqual(r.occupancy, "enemy", msg=f"{r}")
 
+    def test_one_sided_green_not_mine(self):
+        # 무주 공터가 mine으로 오탐된 실기 사례(진실: 팝업 "공터 (181,801)" 등
+        # 2건) — 인접 밭의 밝은 초록이 한쪽 변에만 샘플링된 경우를 기각한다
+        clf = TileClassifier()
+        m = clf.basis.matrix()
+        frame = np.zeros((160, 240, 3), dtype=np.uint8)
+        frame[:] = (90, 120, 70)  # 저채도 지면(어느 마스크에도 안 걸림)
+        green = np.array([60, 220, 70], dtype=np.uint8)  # H~65 S~185 V~220
+
+        def paint(u_sign):
+            # 변 중앙부만 — 실기 인접 번짐은 국소 블롭이며, 변 전체를 칠하면
+            # 모서리가 이웃 변 표본까지 오염해 검정력이 사라진다
+            for t in np.arange(-0.20, 0.201, 0.02):
+                for s in np.arange(0.30, 0.421, 0.02):
+                    x, y = (np.array([120.0, 80.0])
+                            + m @ (u_sign * s, t)).round().astype(int)
+                    frame[max(0, y - 2):y + 3, max(0, x - 2):x + 3] = green
+
+        paint(+1)  # 한쪽 변만 초록 → 기각(중립)
+        self.assertEqual(clf._occupancy(frame, 120, 80), "neutral")
+        paint(-1)  # 마주보는 변까지 초록 → mine
+        self.assertEqual(clf._occupancy(frame, 120, 80), "mine")
+
 
 class StructureDetectionTest(unittest.TestCase):
     """FR-07: 주성 성채 검출·멤버 병합 기하.

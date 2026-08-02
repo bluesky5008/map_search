@@ -1,0 +1,58 @@
+{
+ "db": "C:\\src\\git\\map_search\\output\\ac03.db",
+ "scan": 1,
+ "jump": [
+  146,
+  836
+ ],
+ "checks": [
+  {
+   "i": 0,
+   "record": {
+    "x": 152,
+    "y": 830,
+    "category": "resource",
+    "kind": "식량",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": [
+    152,
+    831
+   ],
+   "xy_match": false
+  },
+  {
+   "i": 1,
+   "record": {
+    "x": 144,
+    "y": 840,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "ally",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  },
+  {
+   "i": 2,
+   "record": {
+    "x": 140,
+    "y": 843,
+    "category": "unknown",
+    "kind": "미상",
+    "occupancy": "neutral",
+    "center_x": null,
+    "center_y": null,
+    "center_estimated": 0
+   },
+   "popup_xy": null,
+   "xy_match": false
+  }
+ ]
+}

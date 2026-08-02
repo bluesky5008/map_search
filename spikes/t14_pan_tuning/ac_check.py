@@ -42,7 +42,10 @@ def main() -> int:
                     metavar=("MX", "MY"), help="점프 좌표(기록 밀집 지점)")
     ap.add_argument("--name", required=True)
     ap.add_argument("--max-clicks", type=int, default=8)
+    ap.add_argument("--targets", nargs="*", default=[],
+                    help="우선 클릭할 기록 좌표 목록 'x,y' (가시 범위 안일 때)")
     args = ap.parse_args()
+    targets = [tuple(int(v) for v in t.split(",")) for t in args.targets]
     WORK.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(args.db)
@@ -87,12 +90,22 @@ def main() -> int:
                 cands.append((cell, rec))
             print(f"화면 내 기록 셀 {len(cands)}개")
 
-            # 분류(category,kind,occupancy) 다양성 우선 + 직전 팝업 회피
+            # 표적 좌표 우선, 나머지는 분류 다양성 우선 + 직전 팝업 회피
             by_key: dict[tuple, list] = {}
+            hits = []
             for c, r in cands:
+                if (c.mx, c.my) in targets:
+                    hits.append((c, r))
+                    continue
                 by_key.setdefault(
                     (r["category"], r["kind"], r["occupancy"]), []).append((c, r))
-            picked, prev = [], None
+            if targets:
+                miss = set(targets) - {(c.mx, c.my) for c, _ in hits}
+                print(f"표적 가시 {len(hits)}/{len(targets)}"
+                      + (f" (미가시: {sorted(miss)})" if miss else ""))
+            picked, prev = list(hits[:args.max_clicks]), None
+            if picked:
+                prev = (picked[-1][0].px, picked[-1][0].py)
             pools = sorted(by_key.values(), key=len)
             while len(picked) < args.max_clicks and any(pools):
                 for pool in pools:
@@ -110,10 +123,19 @@ def main() -> int:
                 if not any(pools):
                     break
 
+            clicked_at = None
             for i, (c, r) in enumerate(picked):
                 rec = {k: r[k] for k in
                        ("x", "y", "category", "kind", "occupancy",
                         "center_x", "center_y", "center_estimated")}
+                # 직전 클릭 팝업(버튼 영역 포함)이 이 셀을 덮으면 클릭 금지
+                if clicked_at is not None and \
+                        clicked_at[0] + POPUP_PAD[0] <= c.px <= clicked_at[0] + POPUP_PAD[2] and \
+                        clicked_at[1] + POPUP_PAD[1] <= c.py <= clicked_at[1] + POPUP_PAD[3]:
+                    print(f"  #{i} ({c.mx},{c.my}) 직전 팝업 영역 — 건너뜀")
+                    out["checks"].append({"i": i, "record": rec,
+                                          "skipped": "popup-overlap"})
+                    continue
                 try:
                     nav.verify_detail_view(cap.grab_fresh())
                     inp.click(round(c.px - ox), round(c.py - oy))
@@ -130,6 +152,7 @@ def main() -> int:
                     out["checks"].append(
                         {"i": i, "record": rec, "popup_xy": got,
                          "xy_match": match})
+                    clicked_at = (c.px, c.py)
                     print(f"  #{i} 기록({rec['x']},{rec['y']}) "
                           f"{rec['kind']}/{rec['occupancy']} → 팝업 {got} "
                           f"{'정합' if match else '불일치'}")

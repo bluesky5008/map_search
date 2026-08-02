@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as wt
+import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from . import win32
 
@@ -17,6 +19,9 @@ log = logging.getLogger(__name__)
 
 TITLE_SUBSTR = "삼국지-전략판"
 MIN_SCAN_ASPECT = 3.0
+# 원래 창 배치의 영속 기록 — 강제 종료(taskkill 등)로 restore()가 못 돈 경우
+# 다음 실행이 스캔 배치를 '원래 배치'로 오인해 사용자 배치가 유실된다(T14 실기).
+_STATE_DIR = Path("output")
 
 
 @dataclass(frozen=True)
@@ -111,7 +116,24 @@ class WindowSession:
         원래 위치·크기를 기억해 두었다가 restore()에서 복원한다.
         """
         if self._original_rect is None:
-            self._original_rect = win32.window_rect(self.hwnd)
+            state = self._state_path()
+            if state.is_file():
+                # 직전 실행이 강제 종료돼 복원하지 못한 원래 배치를 이어받는다
+                try:
+                    self._original_rect = tuple(
+                        json.loads(state.read_text(encoding="utf-8")))
+                    log.info("이전 실행의 미복원 원래 배치 인계: %s",
+                             self._original_rect)
+                except (ValueError, OSError):
+                    self._original_rect = win32.window_rect(self.hwnd)
+            else:
+                self._original_rect = win32.window_rect(self.hwnd)
+                try:
+                    state.parent.mkdir(parents=True, exist_ok=True)
+                    state.write_text(json.dumps(list(self._original_rect)),
+                                     encoding="utf-8")
+                except OSError:
+                    pass   # 기록 실패는 복원 기능 자체를 막지 않는다
         x, y, w, h = rect if rect else quadrant_scan_rect(self.hwnd)
         if not win32.set_window_rect(self.hwnd, x, y, w, h):
             raise RuntimeError(f"창 크기 설정 실패 (err={win32.last_error()})")
@@ -124,6 +146,9 @@ class WindowSession:
                  w, h, x, y, client[0], client[1], aspect)
         return client
 
+    def _state_path(self) -> Path:
+        return _STATE_DIR / f"winstate_{self.hwnd:#x}.json"
+
     def restore(self) -> bool:
         """원래 창 배치로 복원한다. 실패해도 예외를 던지지 않고 기록만 남긴다."""
         if self._original_rect is None:
@@ -132,6 +157,10 @@ class WindowSession:
         ok = win32.set_window_rect(self.hwnd, x, y, w, h)
         if ok:
             self._original_rect = None
+            try:
+                self._state_path().unlink(missing_ok=True)
+            except OSError:
+                pass
             log.info("창 배치 복원: %dx%d at (%d,%d)", w, h, x, y)
         else:
             log.error("창 배치 복원 실패 (err=%d) — 원래 배치 %dx%d at (%d,%d)",
