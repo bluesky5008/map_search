@@ -2,9 +2,8 @@
 
 게임 **"삼국지-전략판"** PC 클라이언트의 월드맵 전 좌표를 자동 순회하며 좌표별 토지 정보를 추출해 파일로 저장하는 stand-alone Windows 도구입니다. 게임이 좌표별 토지 데이터를 외부로 제공하지 않으므로, 화면 캡처·이미지 인식·UI 자동 조작으로 정보를 수집합니다.
 
-> **상태 (2026-08-02):** 요구사항·설계 기준선 **v2 승인**. 구현 진행 중 — 저장·창/캡처/입력·인식(vision)·순회(nav) 계층 완료, 다음은 컨트롤러(T13).
-> 실기 검증에서 **맵 크기 1619×1619 자동 감지**와 좌표 점프·타일 분류까지 동작을 확인했습니다.
-> ⚠ **미결:** 실측 스캔 소요가 목표(하루 이내)를 크게 초과합니다 — [DCR-002](docs/work/20260801-worldmap-land-scan/changes/DCR-002-scan-throughput.md) 결정 대기.
+> **상태 (2026-08-02):** 요구사항 **v3** / 설계 **v4** 승인([DCR-004](docs/work/20260801-worldmap-land-scan/changes/DCR-004-reanchor-coordinate-integrity.md) — 좌표 무결성: 주기 재앵커 + 지연 기록). 전 계층 구현 완료(`mapscan scan` 동작), 검증 T14 대부분 완료 — 지정 영역 스캔(18행 14,972타일)·AC-01/03/06 통과, 처리율 개선 후 완주 행 실측 **21.3~21.9타일/s**.
+> **남은 것:** 전체 스캔 1회 완주(예상 38~52시간, 착수는 사용자 지시 대기) → NFR-02(48h) 최종 판정 → AC-02 최종 재대조 → 최종 보고(T15).
 > 진행 현황과 재개 지점은 [docs/work/20260801-worldmap-land-scan/plan.md](docs/work/20260801-worldmap-land-scan/plan.md)에서 관리합니다.
 
 ## 수집하는 정보
@@ -27,13 +26,13 @@
 | 모드 | 방식 | 수집 정보 | 전체 맵 예상 소요 | 구현 |
 |---|---|---|---|---|
 | MODE-A1 | 전략 줌 스캔 | 점령상태·소유 건물·지형 (중립 타일은 미상) | 약 2~4시간(미실측) | 후속 |
-| **MODE-A2** | **디테일 줌 스캔** | **A1 전체 + 자원 종류·공터·1칸건물·2칸이상건물** | 당초 10~15시간 추정 → **실측 약 150시간** ⚠ | **v1** |
+| **MODE-A2** | **디테일 줌 스캔** | **A1 전체 + 자원 종류·공터·1칸건물·2칸이상건물** | **38~52시간 (완주 행 21.3~21.9타일/s 실측 외삽)** | **v1** |
 | MODE-B | 하이브리드 (A2 + 선별 클릭) | A2 + 선별 대상의 레벨 | — | 후속 |
 | MODE-C | 영역 한정 전수 클릭 | 전 항목 (레벨 포함) | — | 후속 |
 
 전 좌표 클릭 방식은 맵 전체 기준 주 단위가 걸려 지원하지 않습니다. 이것이 모드를 분리한 이유입니다.
 
-⚠ **MODE-A2 소요 시간이 목표를 초과합니다.** 좌표 점프 직후 뜨는 선택 팝업과 HUD가 화면을 가려, 한 화면에 보이는 199타일 중 실제로 분류에 쓸 수 있는 것은 56타일뿐입니다. 여기에 커버 영역의 구멍 때문에 방문당 신규 커버가 36타일까지 줄어, 1619² 맵 기준 72,900회 방문 × 7.7초 = 약 150시간이 됩니다. 개선안(이동을 드래그 팬으로 전환하면 팝업이 뜨지 않아 약 16시간 추정)과 함께 [DCR-002](docs/work/20260801-worldmap-land-scan/changes/DCR-002-scan-throughput.md)에 정리했습니다.
+당초 좌표 점프 순회는 실측 약 150시간이 걸렸습니다([DCR-002](docs/work/20260801-worldmap-land-scan/changes/DCR-002-scan-throughput.md)). 이동을 **드래그 팬 행 스캔**으로 바꾸고([DCR-003](docs/work/20260801-worldmap-land-scan/changes/DCR-003-nfr02-final-pan-design.md) — NFR-02를 48시간으로 확정), 좌표 드리프트는 **K=4팬 주기 클릭 재앵커 + 지연 기록**으로 지웁니다([DCR-004](docs/work/20260801-worldmap-land-scan/changes/DCR-004-reanchor-coordinate-integrity.md)). 이후 T14에서 재앵커 판독 보강과 캡처 세션 스레딩 결함 수정(plan.md 사실 45~48)으로 완주 행 21.3~21.9타일/s를 실측했습니다.
 
 ## 창 크기가 스캔 속도를 좌우합니다
 
@@ -45,14 +44,16 @@
 | 2544×1401 (비율 유지 확대) | 1.82 | 89 |
 | **2544×657 (사분면 스냅)** | **3.87** | **246** |
 
-넓고 낮은 창으로 두면 스캔 시간이 약 1/3로 줄어듭니다(32~52시간 → 10~15시간). 도구는 스캔 시작 시 창을 자동으로 이 크기로 설정하고 종료 시 원래대로 복원합니다.
+넓고 낮은 창으로 두면 한 화면의 가시 타일이 약 2.9배가 됩니다. 도구는 스캔 시작 시 창을 자동으로 이 크기로 설정하고 종료 시 원래대로 복원합니다(강제 종료 시에도 사이드카 `output/winstate_*.json`으로 다음 실행이 복원).
 
 ## 동작 방식
 
 ```text
-좌표 점프(지도 모드 확인 → 좌표 입력 → 이동) → 화면 안정화 대기 → 캡처
-  → 평행사변형 격자 분할 → 타일 분류(점령색 + 템플릿 매칭) → SQLite 기록
-  → 완료 시 CSV 내보내기
+행 시작: 좌표 점프(지도 모드 확인 → 좌표 입력 → 이동) → 디테일 뷰 검증
+행 내부: 드래그 팬 반복 → 전단 이동장(dx=a+b·y) 실측 추적 → 대역 내 신규 셀 분류
+좌표 무결성: K=4팬마다 타일 클릭 재앵커(팝업 좌표 판독 + 새니티 창)
+  → 사이클 버퍼를 드리프트 팬별 보간 보정 후 SQLite 기록(미보정 꼬리는 폐기)
+행 종료 → 다음 행 … → 미커버 좌표 점프 보충 방문 → 완료 시 CSV 내보내기
 ```
 
 - **백그라운드 동작:** 게임 창이 다른 창에 가려져 있어도 스캔이 진행됩니다(Windows Graphics Capture + PostMessage, 실기 검증 완료). 창 **최소화**는 지원하지 않습니다.
@@ -63,9 +64,13 @@
 - **이상 복구:** 예기치 못한 게임 팝업·화면 전환 실패를 감지하면 복구를 시도하고, 불가하면 체크포인트를 남기고 안전하게 정지합니다.
 - **보수적 분류:** 인식 신뢰도가 낮은 타일은 오분류 대신 `미상`으로 기록하고 증거 이미지를 남깁니다(분류 정확도 목표 99%).
 
-### 인식 현황 (T11 시점)
+### 인식 현황 (T14 시점)
 
-분류기는 동작하지만 **스프라이트 템플릿이 아직 목재 한 종류뿐**이라, 그 외 타일은 보수적으로 `미상`으로 기록됩니다. 점령 상태(적군·동맹 계열)는 타일 경계 색으로 판별합니다. 점령된 자원 타일은 스프라이트가 생산 시설로 바뀌므로 중립형·점령형 템플릿을 따로 수집해야 하며, 나머지 자원·건물 템플릿과 함께 T14에서 실기 수집합니다.
+- **자원 템플릿:** 목재(중립형), 철광(중립 Lv.1 `iron_neu` + 점령형 `iron_occ`), 석재(중립 Lv.3/Lv.5), 식량(점령형 밭 — 중립형 밭에도 정당 매칭). 구리는 표본 미확보로 미상 처리.
+- **건물:** 주성 성채(키프) 템플릿 검출 + 지면 중심 반경 멤버 병합(FR-07, `center_x/y` 추정 표기). 다른 스킨·소형 도시는 보수 미상.
+- **점령상태:** 타일 경계 색 판별(적 빨강·동맹/우호 파랑·내땅 초록). 파랑·초록은 **마주보는 변 쌍 규칙**으로 강·인접 스프라이트 번짐 오탐을 배제. 내땅·우호는 정탐 표본 미확보로 잠정 임계.
+- **팝업 좌표 판독:** 글리프 변형 누적 + 슬라이드 최빈값 투표 + 세그먼테이션 복구 패스. 판독 실패 시 증거를 `output/evidence/`에 자동 축적해 사후 보강.
+- 신뢰도 미달 타일은 여전히 `미상` 보수 기록(오분류보다 미상이 안전 — 확보 표본 기준 확정 오분류 0)
 
 ## 산출물
 
@@ -110,9 +115,7 @@ x,y,category,kind,level,occupancy,center_x,center_y,center_estimated,confidence,
 옵션: `-List` `-Index N` `-All` `-Quadrant TL|TR|BL|BR` `-Width` `-Height` `-Restore` `-TitleMatch`.
 관리자 권한이 없으면 자동으로 UAC를 띄우며, **결과는 새로 열리는 관리자 창에 표시**됩니다. 변경 전 배치는 `%LOCALAPPDATA%\mapscan\saved_window_rects.json`에 저장됩니다.
 
-### mapscan (구현 진행 중)
-
-현재는 계층별 점검 명령이 있습니다. 스캔 명령은 T13에서 추가됩니다.
+### mapscan
 
 ```powershell
 # 개발 환경 준비 (한 번만) — 테스트·CLI가 mapscan 패키지를 찾게 합니다
@@ -120,6 +123,12 @@ x,y,category,kind,level,occupancy,center_x,center_y,center_estimated,confidence,
 
 # 대상 창 목록. 같은 제목 창이 여러 개면 --crops로 계정명을 저장해 구분합니다
 .venv\Scripts\python -m mapscan.cli windows --crops output
+
+# 전체 스캔 (관리자 권한 필요, 수십 시간 — 재실행하면 체크포인트에서 재개)
+.venv\Scripts\python -m mapscan.cli scan --hwnd 0x60042 --db output\full.db --csv output\full_csv
+
+# 부분 실행·점검 (행 150부터 1행, 팬 12회 한도)
+.venv\Scripts\python -m mapscan.cli scan --hwnd 0x60042 --start-row 150 --max-rows 1 --max-pans 12
 
 # 스캔 창 설정 → 캡처 → 클릭 → 복원 점검 (관리자 권한 필요)
 .\run_elevated.ps1 -Cmd "probe --hwnd 0x503dc --out output\probe.png --click 700 350"
@@ -143,7 +152,7 @@ powershell -ExecutionPolicy Bypass -File spikes\s3_nav_ui\run_live.ps1 -Hwnd 0x6
 ### 테스트
 
 ```powershell
-.venv\Scripts\python -m unittest discover -s tests   # 현재 64건
+.venv\Scripts\python -m unittest discover -s tests   # 현재 100건
 ```
 
 ## 프로젝트 구조
@@ -155,26 +164,31 @@ map_search/
 ├── image/                       # 게임 화면 참고 이미지 (분류 근거·템플릿 원천)
 ├── docs/work/20260801-worldmap-land-scan/
 │   ├── plan.md                  # 구현 진행 상황·재개 지점  ← 세션 시작 시 먼저 읽기
-│   ├── requirements.md          # 요구사항 명세 (기준선 v2)
-│   ├── design.md                # SW 설계 (기준선 v2)
+│   ├── requirements.md          # 요구사항 명세 (기준선 v3)
+│   ├── design.md                # SW 설계 (기준선 v4)
 │   ├── design-change-log.md     # 설계 변경 이력 (DCR + 경미 변경)
-│   ├── changes/DCR-001,002      # 설계 변경 요청 (001 승인 / 002 결정 대기)
+│   ├── changes/DCR-001~004      # 설계 변경 요청 (전부 승인·반영)
 │   └── decisions/ADR-001~006    # 설계 결정 기록
 ├── spikes/                      # 기술 검증 스파이크 + 판정 기록 (제품 코드 아님)
 │   ├── s1_background_io/        # 백그라운드 캡처·입력 검증
 │   ├── s2_zoom_grid/            # 줌·자원 식별·창 종횡비 측정
-│   └── s3_nav_ui/               # 지도 모드 UI·맵 크기 감지·팝업 오클루전
+│   ├── s3_nav_ui/               # 지도 모드 UI·맵 크기 감지·팝업 오클루전
+│   ├── s5_drag_pan/             # 드래그 팬 실현 가능성 (3게이트 통과)
+│   ├── s6_remeasure/            # DCR-002 안(d) 처리율 재측정 (방문 99회)
+│   └── t14_pan_tuning/          # T14 검증 도구·표본·증거 (K 튜닝, 템플릿 수집 등)
 ├── assets/templates/            # 스프라이트·글리프·UI 마커 (출처는 README.md)
 ├── src/mapscan/
-│   ├── cli.py                   # ✅ 진입점 (windows / probe / classify)
+│   ├── cli.py                   # ✅ 진입점 (windows / probe / classify / scan)
 │   ├── win/                     # ✅ WindowSession, WgcCapture, PostMessageInput
 │   ├── store/                   # ✅ DataStore(SQLite), CSV 내보내기
 │   ├── vision/                  # ✅ GridMapper, TileClassifier, DigitReader
-│   ├── nav/                     # ✅ Navigator, ScanPlanner, ui.py(캘리브레이션)
-│   └── controller.py            # ⬜ ScanController, DetailScan(A2)
+│   ├── nav/                     # ✅ Navigator, ScanPlanner, PanTracker, ui.py(캘리브레이션)
+│   ├── controller.py            # ✅ ScanController, DetailScan(A2, 재앵커·지연 기록)
+│   └── watchdog.py              # ✅ 프레임 이상 감시
 ├── tools/set-client-quadrant.ps1  # ✅ 창 크기 조절 (독립 실행)
+├── tools/agent_shell.ps1        # 상주 관리자 실행기 (UAC 1회로 명령 파일 순차 실행)
 ├── run_elevated.ps1             # 관리자 권한 실행 러너
-└── tests/                       # 단위·회귀 테스트 (현재 64건)
+└── tests/                       # 단위·회귀 테스트 (현재 100건)
 ```
 
 ## 문서
@@ -182,10 +196,12 @@ map_search/
 | 문서 | 내용 |
 |---|---|
 | [plan.md](docs/work/20260801-worldmap-land-scan/plan.md) | **구현 진행 상황·다음 작업·검증 결과 — 작업 재개 지점** |
-| [requirements.md](docs/work/20260801-worldmap-land-scan/requirements.md) | 요구사항 명세 v2 — FR/NFR, 인수 조건, 결정 기록 |
-| [design.md](docs/work/20260801-worldmap-land-scan/design.md) | SW 설계 v2 — 컴포넌트, DB 스키마, 동작, 추적표, 위험 |
+| [requirements.md](docs/work/20260801-worldmap-land-scan/requirements.md) | 요구사항 명세 v3 — FR/NFR, 인수 조건, 결정 기록 |
+| [design.md](docs/work/20260801-worldmap-land-scan/design.md) | SW 설계 v4 — 컴포넌트, DB 스키마, 행 기반 팬 스캔·재앵커, 추적표, 위험 |
 | [design-change-log.md](docs/work/20260801-worldmap-land-scan/design-change-log.md) | 설계 변경 이력 — DCR과 "경미한 변경"(구현 중 수단이 바뀐 항목) |
-| [DCR-002](docs/work/20260801-worldmap-land-scan/changes/DCR-002-scan-throughput.md) | **⚠ 결정 대기 — 스캔 소요가 NFR-02 초과, 선택지와 권고안** |
+| [DCR-002](docs/work/20260801-worldmap-land-scan/changes/DCR-002-scan-throughput.md) | 스캔 소요 초과 대응 — 안 (d) 최적화 후 재측정 채택(반영 완료) |
+| [DCR-003](docs/work/20260801-worldmap-land-scan/changes/DCR-003-nfr02-final-pan-design.md) | NFR-02 48시간 확정 + 팬 이동 설계 (승인) |
+| [DCR-004](docs/work/20260801-worldmap-land-scan/changes/DCR-004-reanchor-coordinate-integrity.md) | 좌표 무결성 — 주기 재앵커 + 지연 기록 (승인) |
 | [ADR-001](docs/work/20260801-worldmap-land-scan/decisions/ADR-001-tech-stack.md) | 구현 스택: Python + OpenCV |
 | [ADR-002](docs/work/20260801-worldmap-land-scan/decisions/ADR-002-capture-input.md) | 캡처·입력: WGC + PostMessage (HWND 바인딩·입력 제약 실측 포함) |
 | [ADR-003](docs/work/20260801-worldmap-land-scan/decisions/ADR-003-storage.md) | 저장: SQLite 원장 + CSV 내보내기 |
@@ -199,10 +215,10 @@ map_search/
 
 ## 로드맵
 
-1. **v1 (진행 중):** MODE-A2 디테일 줌 전체 스캔
-   - ✅ 저장(SQLite+CSV), 창/캡처/입력, 인식(격자·분류·글리프), 순회(이동·방문 계획)
-   - ⬜ 컨트롤러·워치독·진행률(T13) → 템플릿 수집과 정확도 검증(T14) → 통합(T15)
-   - ⚠ 착수 전 [DCR-002](docs/work/20260801-worldmap-land-scan/changes/DCR-002-scan-throughput.md) 결정 필요 — 이동 전략이 컨트롤러 루프 구조를 좌우합니다
+1. **v1 (마무리 단계):** MODE-A2 디테일 줌 전체 스캔
+   - ✅ 저장(SQLite+CSV), 창/캡처/입력, 인식(격자·분류·글리프), 순회(팬·재앵커·방문 계획), 컨트롤러·워치독·진행률
+   - ✅ T14 검증 대부분 — 지정 영역 스캔(18행 14,972타일), AC-01/03/06 통과, 처리율 개선(21.3~21.9타일/s)
+   - ⬜ 전체 스캔 1회 완주(사용자 지시 대기) → NFR-02 최종 판정 → AC-02 최종 재대조 → 최종 보고(T15)
 2. **v2:** MODE-A1(전략 줌 빠른 점령 지도), MODE-B/C(레벨 정보 수집)
 3. **이후:** 안드로이드 환경 프로그램 (인식 로직은 캡처·입력 인터페이스와 분리되어 재사용 대비)
 
