@@ -1,7 +1,7 @@
 # 구현 계획 — 월드맵 토지정보 추출기 v1 (MODE-A2)
 
 - 작업 ID: 20260801-worldmap-land-scan
-- 기준선: **요구사항 v2 / 설계 v2 (2026-08-02 승인, DCR-001)**
+- 기준선: **요구사항 v3 / 설계 v3 (2026-08-02 승인, DCR-003 — 팬 이동 전략 + NFR-02 48시간)**
 - 최종 갱신: 2026-08-02
 - 이 문서는 wf-implement의 작업 기록이며 진행 상태를 여기서 갱신한다. **세션을 새로 시작하면 이 문서를 가장 먼저 읽는다.**
 
@@ -9,10 +9,10 @@
 
 | 구분 | 상태 |
 |---|---|
-| 요구사항·설계 | v2 승인. **DCR-002 승인(안 d, 2026-08-02)** — 최적화 후 재측정. NFR-02 수치는 재측정 결과로 확정하는 후속 DCR에서 정한다(그때까지 기준선 v2 유지) |
+| 요구사항·설계 | **v3 승인 (2026-08-02, DCR-003)** — NFR-02 = 48시간(기준선 33~36시간), 팬 이동 설계(행 기반 루프·전단 추적·대역 한정 분류) 반영. DCR-002는 반영 완료 |
 | 스파이크 | S-1·S-2 완료. **S-3 완료**(입력란 조작·클램프 감지), **S-4 완료**(팝업은 닫을 수 없음 → 겹침 커버 유지), **S-5 완료·통과**(드래그 팬 실현 가능 — 아래 확정 사실 15~19, `spikes/s5_drag_pan/findings.md`), **S-6 재측정 완료**(방문 99회 — 광폭 팬 2.95s/68.2타일, 총 33~36시간, `spikes/s6_remeasure/findings.md`) |
 | 구현 완료 | T8 골격, T10 store, T9 win, T11 vision, **T12 nav**, 부가 도구 |
-| **다음 작업** | **[DCR-003](changes/DCR-003-nfr02-final-pan-design.md) 사용자 승인 대기** — NFR-02 확정(권고 48시간, 기준선 33~36시간) + 팬 이동 설계 v3. **승인 시**: 요구사항·설계 v3 갱신 → T13(행 기반 ScanController, S-6 하네스를 참조 구현으로 이식) → T14(+겨울 템플릿·밴드 기각 검증). **거부/수정 시**: 지시에 따라 재작업 |
+| **다음 작업** | **T13 controller/cli** — 행 기반 ScanController(S-6 하네스 `spikes/s6_remeasure/measure100.py`를 참조 구현으로 제품 이식): Navigator.pan + 디테일 뷰 시그니처 검증, 전단 추적(밴드 기각 포함), ScanPlanner 행 계획, ui.py 상수 갱신(HUD 축소·팝업 실측), Watchdog, 진행률·재개 |
 | 테스트 | `python -m unittest discover -s tests` — 64건 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
 | 실기 확정값 | **맵 크기 1619×1619**(자동 감지 성공), 스캔 창 클라이언트 2544×657 |
 | 테스트 클라이언트 | **계정 羊커리** (2026-08-02 기준 hwnd `0x60042`). HWND는 재시작 시 바뀌므로 `mapscan windows --crops <dir>`로 계정명 크롭을 저장해 확인한다 |
@@ -22,10 +22,10 @@
 
 ## 기준선
 
-- 관련 요구사항: [requirements.md](requirements.md) v2 — FR-01, FR-02, FR-03b, FR-05, FR-07~12, NFR-01~06
-- 관련 설계: [design.md](design.md) v2 (2026-08-02 구현 실측 반영)
+- 관련 요구사항: [requirements.md](requirements.md) v3 — FR-01, FR-02, FR-03b, FR-05, FR-07~12, NFR-01~06
+- 관련 설계: [design.md](design.md) v3 (2026-08-02 팬 이동 전략·S-5/S-6 실측 반영)
 - 관련 ADR: ADR-001(스택), ADR-002(캡처·입력 + T12 실측 보완), ADR-003(저장), ADR-004(모드 구조), ADR-005(창 종횡비 + 실측 보완), **[ADR-006](decisions/ADR-006-map-size-detection.md)(맵 크기 감지 — 신규)**
-- 관련 DCR: [DCR-001](changes/DCR-001-mode-a-zoom-limits.md) 승인 — v1 구현 범위는 **MODE-A2만** / **[DCR-002](changes/DCR-002-scan-throughput.md) 승인(안 d, 2026-08-02) — 최적화 후 재측정. NFR-02 수치는 재측정 후 확정 DCR로**
+- 관련 DCR: [DCR-001](changes/DCR-001-mode-a-zoom-limits.md) 승인 — v1 구현 범위는 **MODE-A2만** / [DCR-002](changes/DCR-002-scan-throughput.md) 반영 완료(안 d) / **[DCR-003](changes/DCR-003-nfr02-final-pan-design.md) 승인(2026-08-02) — NFR-02 48시간 확정 + 팬 이동 설계 v3**
 - 구현 중 수단이 바뀐 항목(경미한 변경)은 [design-change-log.md](design-change-log.md)에 이유와 함께 정리했다.
 
 ## 스파이크 확정 사실 (구현 제약)
@@ -75,8 +75,8 @@
 - [x] T9b. 부가 도구 — `tools/set-client-quadrant.ps1` (독립 실행형 창 크기 조절: 사분면/지정 크기/전체 일괄/복원). 요구사항 산출물은 아니며 수동 운용 편의용
 - [x] T11. vision 계층 — **완료.** GridMapper(평행사변형 격자·하이라이트 앵커·가시 셀 열거), TileClassifier(점령색 판별 + 템플릿 매칭 + 지형 휴리스틱 + 미상 보수 처리), DigitReader(글리프 판독), 템플릿 자산(`assets/templates/`), CLI `classify` 점검 명령. 단위·회귀 테스트 20건 추가(총 40건). 상세는 아래 "작업 결과 — T11"
 - [x] T12. nav 계층 — **완료.** Navigator(지도 모드 검증·좌표 점프·안정화·맵 크기 감지), ScanPlanner(잉여류 타일링 방문 계획·보충·재개), UI 캘리브레이션 상수, S-3/S-4 스파이크. 상세는 "작업 결과 — T12"
-- [ ] T13. controller/cli — ScanController + DetailScan(A2), Watchdog, 진행률·재개. A1/B/C는 스텁. **DCR-002 승인(안 d): S-5 결과가 이동 전략(팬+행 시작 재앵커링 vs 점프)을 확정한 뒤 착수**
-- [ ] T14. 검증 — AC-01/02/03/05/06/07 수행·기록, 템플릿 실기 수집(점령형 포함), 방문당 소요 실측 → NFR-02 확정
+- [ ] T13. controller/cli — **행 기반**(설계 v3 §4.3) ScanController + DetailScan(A2), Watchdog, 진행률·재개. A1/B/C는 스텁. 이식 대상: S-6 하네스의 팬·전단 추적(+**기대 게인 창 밖 밴드 기각** 추가)·대역 열거·디테일 뷰 시그니처. ui.py 상수 갱신(HUD 축소, 팝업 실측 사각형). 폴백: 좌표 점프 단독 경로 유지
+- [ ] T14. 검증 — AC-01/02/03/05/06/07 수행·기록, 템플릿 실기 수집(점령형 + **겨울 팝업 좌표 글리프**), 밴드 기각 동작 검증, 기저 y-의존 실측(분류 대역 확대 판단), 전체 스캔 1회 완주 → NFR-02(48시간) 최종 판정
 - [ ] T15. 통합·자체 리뷰·최종 보고, README 갱신
 - [x] T15a. 문서 일괄 갱신 (2026-08-02) — requirements/design/ADR-002·005/README/스파이크 findings에 T11·T12 실측 반영, ADR-006·DCR-002 신규, 변경 이력에 경미 변경 표 추가
 
