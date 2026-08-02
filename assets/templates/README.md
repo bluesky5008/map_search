@@ -12,10 +12,13 @@ vision 계층(TileClassifier, DigitReader)이 사용하는 템플릿. 게임 업
 | 파일 | (category, kind) | 출처 |
 |---|---|---|
 | wood.png | resource, 목재 | `spikes/s2_zoom_grid/work3/snap_tr_base.png`의 타일 (1020,620) 중심 96x64 크롭. 같은 뷰의 `snap_click_R.png` 팝업 "Lv.1 목재 (1020,620)"으로 지상 진실 확정 |
+| iron_occ.png | resource, 철광 (점령형) | `spikes/t14_pan_tuning/work/tiles_occ_02_cell.png`(커밋 픽스처, 중심 120,80) 중심 96x64. 클릭 팝업 "Lv.5 철광 (1017,626)" 지상 진실. 추출: `register_templates.py` |
+| food_occ.png | resource, 식량 (점령형·밭) | `spikes/t14_pan_tuning/work/tiles_mine_01_cell.png` 중심 96x64. 클릭 팝업 "Lv.5 식량 (354,325)" 지상 진실. 동일 추출 |
 
-**미확보(실기 수집 필요, T14 계획):** 석재·철광·식량·구리(스캔 창 크기),
-1칸·2칸 건물 종류별, 그리고 **점령형 스프라이트 전반** — 점령된 자원 타일은
-중립형과 달리 생산 시설(밭·목장 등)로 렌더링됨을 확인했다.
+**미확보(실기 수집 필요):** 석재·구리와 중립형 철광·식량(스캔 창 크기),
+1칸·2칸 건물 종류별, 점령형의 레벨·소유별 변형(현재 각 1표본 — Lv.8 철광은
+월드 라벨 텍스트가 겹쳐 등록 보류), 내땅(초록) 테두리 표본. 점령된 자원
+타일은 중립형과 달리 생산 시설(밭·광산 시설 등)로 렌더링된다(확정 사실 10).
 
 ## digits/ — 숫자 글리프
 

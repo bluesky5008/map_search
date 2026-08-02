@@ -8,6 +8,7 @@ from mapscan.vision import GridBasis, GridMapper, TileClassifier, find_selection
 
 REPO = Path(__file__).resolve().parent.parent
 WORK3 = REPO / "spikes" / "s2_zoom_grid" / "work3"
+T14_WORK = REPO / "spikes" / "t14_pan_tuning" / "work"
 
 
 def load_rgb(path: Path) -> np.ndarray:
@@ -77,6 +78,49 @@ class ClassifierRegressionTest(unittest.TestCase):
             self.assertIn(r.occupancy,
                           ("mine", "ally", "friendly", "enemy", "neutral"))
             self.assertTrue(0.0 <= r.confidence <= 1.0)
+
+
+class FieldSampleRegressionTest(unittest.TestCase):
+    """T14.3 실기 표본 회귀 (지상 진실: 클릭 팝업 판독, 라벨은 analyze_tiles.LABELS).
+
+    픽스처는 sample_tiles.py 수집 프레임의 240x160 셀 크롭
+    (register_templates.py 추출) — 셀 중심은 항상 (120,80).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.clf = TileClassifier()
+
+    def _classify(self, name):
+        return self.clf.classify(load_rgb(T14_WORK / f"{name}_cell.png"), 120, 80)
+
+    def test_occupied_iron_template_and_ally(self):
+        # Lv.5 철광 점령형(동맹 FIRST — 행군/주둔 버튼으로 확인)
+        r = self._classify("tiles_occ_02")
+        self.assertEqual((r.category, r.kind), ("resource", "철광"))
+        self.assertEqual(r.occupancy, "ally")
+
+    def test_occupied_food_template(self):
+        # Lv.5 식량 점령형(밭). 소유 패널이 잘려 점령상태 진실은 불확정 —
+        # 마주보는 변 규칙상 중립(보수) 판정
+        r = self._classify("tiles_mine_01")
+        self.assertEqual((r.category, r.kind), ("resource", "식량"))
+
+    def test_cliff_river_blue_not_ally(self):
+        # 팝업 진실 "절벽 — 점령 불가". 강 인접 파랑 번짐(blue 8.6%)이
+        # 한쪽 변에만 있어 마주보는 변 규칙이 기각한다 (구현 전 ally 오탐)
+        r = self._classify("tiles_occ_04")
+        self.assertEqual(r.occupancy, "neutral", msg=f"{r}")
+
+    def test_vacant_plot_blue_not_ally(self):
+        # 팝업 진실 "무주 공터 (345,335)" — 인접 파랑 번짐 오탐 회귀(확정 사실 37)
+        r = self._classify("tiles_mine_00")
+        self.assertEqual(r.occupancy, "neutral", msg=f"{r}")
+
+    def test_enemy_occupied_plot_kept(self):
+        # 점령 공터(잠봉) — 빨강 정탐이 규칙 변경에 영향받지 않는다
+        r = self._classify("tiles_occ_05")
+        self.assertEqual(r.occupancy, "enemy", msg=f"{r}")
 
 
 if __name__ == "__main__":
