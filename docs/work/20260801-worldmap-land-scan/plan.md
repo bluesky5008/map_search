@@ -281,6 +281,13 @@ T14.1(기각 튜닝) 원인 규명 중 **추측항법 좌표 드리프트**를 �
 | 캡처 세션 저하 (벤치) | `bench_capture_session.py` — 세션 유무·콜백 소비 방식 4종 × 프로세스 격리 | blocking start(파이썬 스레드) **31ms/셀**, free-threaded **6.8ms/셀**(세션 없음 6.1) | 사실 47, output/bench4_*.log |
 | 처리율 재측정 (실기) | `measure_k.py` — 행 100·101, K=4, free-threaded 빌드, 완주 | **21.9 / 21.3타일/s** (128s/2,798타일 · 130s/2,769타일), 행 실패 0 | 사실 48 |
 | 중립형 템플릿 (단위) | iron_neu·stone_neu3·stone_neu5 등록(v2 수집 — 팝업 진실 `neutral_*_popup.png` 육안 확정, 클릭 픽 (185,794)·(175,806) 판독 정합) + 교차 검사(5프레임 775점 — 부당 변화 0, 미상→석재는 실제 광상) | **통과** ("Ran 100 tests ... OK"), 철광→공터 확정 오분류 해소 | `register_neutral.py`, `test_neutral_resource_templates` |
+| **S-7 게이트 4** (MuMu 캡처·입력) | WGC 바인딩(top/자식)·PostMessage 클릭(팝업 진실 대조)·드래그 팬 재현성·수직 팬 좌표 대조 | **통과** — 캡처 top·입력 MuMuNxDevice, 팬 게인 PC 동일(좌 −443 σ0·관성 0), 격자 기저 ±1타일 정합 | `spikes/s7_mumu/findings.md`, work/*.json |
+| **S-7 게이트 5** (글리프 1:1) | 육안 확정 스트립 정렬 + MuMu 변형 수확 후 판독 + PC 회귀 11소스 재검증 | **통과** — 크기 1:1(9자 중 7자 즉시 정합), 변형 3종(3_2·3_3·paren_r_4)으로 정판독·무잠식 | `harvest_glyphs.py` |
+| DCR-005 적응 (실기) | `probe --mumu` 캡처·클릭 + `measure_mumu.py` 행 100·101 (K=4) | **통과** — 행 100 완주 **21.81타일/s**(PC 21.3~21.9와 동등) | `work/mumu_rate.json` |
+| 다계정 병렬 동시 실측 | 용스(행 104~105)+실버(행 210~211) 2프로세스 동시 스캔 | **병렬 저하 없음** — 용스 행 105 132s/2,951타일 = 22.4타일/s. 실버는 남서부 판독 실패 지역(증거 축적) | `output/par_yong.log`·`par_silver.log` |
+| merge 병합 (실기+단위) | 청크 DB 2개 병합 → 타일 수·맵 검증·체크포인트 + 단위 2건(최신 우선·거부) | **통과** — 3,240+738=3,978 정합, checkpoint 544(재개 시 보충 직행) | `output/par_merged.db` |
+| end_row 청크 (단위) | 상한·멱등 재실행·상한 확장 재개·보충 생략 + 전체 실행 보충 유지 | **전부 통과** ("Ran 115 tests ... OK") | `ChunkRunTest` |
+| **무인 운용** (모니터 off·원격 해제) | `health_check.py`(프레임 생동·NCC) + 행 106 기능 검사 + **RDP 앱 종료(연결 해제) 상태** 행 107~114 | **통과** — 8행 연속 완주·실패 0(23:39~23:45 타임스탬프 공백 없음), 세션 전환(rdp-tcp→해제→콘솔 복귀) 구간 포함. 완전 무인 확정 | `output/health_row.log`, `output/rdp_test.log` |
 
 ## 구현 중 확정된 환경 제약 (재발 방지)
 
@@ -344,6 +351,11 @@ T14.1(기각 튜닝) 원인 규명 중 **추측항법 좌표 드리프트**를 �
   (my 1200~1300) 판독 실패 지역으로 조기 종료(증거 4장 축적 — 수확·보강 대상,
   전체 스캔에선 재시도·보충 몫). **2계정 견적 확정 20~27h.** 4계정+ 저하는
   미실측(인스턴스 2개 환경 — 확장 시 행 2개 실측 보정).
+- **무인 운용 실증 완료(2026-08-02 밤):** 모니터 off + RDP 앱 종료(연결 해제) 상태에서
+  행 107~114 8행 연속 완주(실패 0). 운용 수칙 — 원격 뷰어 X 종료·모니터 off·창 가림은
+  무해, **로그아웃·시스템 절전·창 최소화만 금지**. 재접속 시 상태 점검은
+  `python spikes/s7_mumu/health_check.py`(읽기 전용). RDP 렌더링에서 UI NCC 0.75는
+  정상(로컬 0.90). 상세: `spikes/s7_mumu/findings.md` "원격(RDP)" 절.
 - **전체 스캔은 사용자 지시 대기.** 2계정 병렬 절차(`mapscan chunks --accounts 2` 출력):
   ① `scan --mumu 용스 --db output/part1.db --map-size 1619 1619 --new --start-row 0 --end-row 272`
   ② `scan --mumu 실버 --db output/part2.db --map-size 1619 1619 --new --start-row 272 --end-row 544`
