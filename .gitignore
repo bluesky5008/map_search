@@ -16,3 +16,8 @@ spikes/s5_drag_pan/work*/*
 !spikes/s5_drag_pan/work/*.log
 !spikes/s5_drag_pan/work/agent_status.txt
 !spikes/s5_drag_pan/work/s5_results.json
+
+# S-6 재측정 작업 산출물 — 로그·결과만 선별 커밋한다
+spikes/s6_remeasure/work/*
+!spikes/s6_remeasure/work/*.log
+!spikes/s6_remeasure/work/measure_results.json

@@ -104,4 +104,4 @@ NFR-02는 MODE-A2 전체 스캔을 **하루 이내**로 규정하고 "실측으�
   - [x] DCR-002 상태 → 승인 (안 d)
   - [x] design-change-log.md에 승인 결과 반영
   - [x] S-5 수행 (wf-implement, plan.md T7b) — **통과** (2026-08-02, `spikes/s5_drag_pan/findings.md`)
-  - [ ] 최적화 1~3 적용 → 방문 100회 실측 → NFR-02 확정 DCR 발행
+  - [x] 최적화 1~3 적용 → 방문 99회 실측 (2026-08-02, `spikes/s6_remeasure/findings.md` — 33~36시간 산출) → **[DCR-003](DCR-003-nfr02-final-pan-design.md) 발행(승인 대기)**. DCR-003 승인 시 본 DCR은 반영 완료로 전환
