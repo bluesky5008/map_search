@@ -145,13 +145,72 @@ def cmd_scan(args) -> int:
             map_max = tuple(args.map_size) if args.map_size else None
             summary = ctl.run("A2", map_max=map_max,
                               resume=not args.new, max_rows=args.max_rows,
-                              start_row=args.start_row, max_pans=args.max_pans)
+                              start_row=args.start_row, max_pans=args.max_pans,
+                              end_row=args.end_row)
     print(f"스캔 {summary['scan_id']} {summary['status']}: "
           f"{summary['covered']:,}/{summary['total']:,}타일, "
           f"행 {summary['rows']}개(실패 {summary['row_failures']})")
     if args.csv and summary["status"] == "done":
         for path in export_csv(store, summary["scan_id"], args.csv):
             print(f"CSV 저장: {path}")
+    store.close()
+    return 0
+
+
+def cmd_chunks(args) -> int:
+    """다계정 병렬 청크 분할 안내 — 행 범위와 실행 명령을 출력한다(DCR-005)."""
+    from .controller import plan_rows
+
+    total = len(plan_rows(tuple(args.map_size)))
+    n = args.accounts
+    bounds = [round(i * total / n) for i in range(n + 1)]
+    print(f"전체 {total}행을 {n}청크로 분할 (맵 {args.map_size[0]}x{args.map_size[1]}):")
+    for i in range(n):
+        a, b = bounds[i], bounds[i + 1]
+        print(f"  청크 {i + 1}: 행 [{a}, {b})  — 최초 실행:\n"
+              f"    mapscan scan --mumu <인스턴스{i + 1}> --db output/part{i + 1}.db "
+              f"--map-size {args.map_size[0]} {args.map_size[1]} "
+              f"--new --start-row {a} --end-row {b}\n"
+              f"    (중단 후 재개는 --new/--start-row 없이 --end-row {b}만)")
+    print("전 청크 완료 후:\n"
+          "  mapscan merge --db output/full.db --parts "
+          + " ".join(f"output/part{i + 1}.db" for i in range(n))
+          + "\n  mapscan scan --mumu <아무 인스턴스> --db output/full.db "
+            "--csv output/full_csv   # 병합분 재개 → 보충 방문만 수행 → 완료·CSV")
+    return 0
+
+
+def cmd_merge(args) -> int:
+    """청크 DB들을 하나의 스캔으로 병합한다(같은 좌표는 captured_at 최신 우선).
+
+    병합 스캔의 체크포인트를 전체 행 수로 설정해, 이후 `scan --db <대상>`
+    재개가 곧바로 보충 방문 단계로 진입하게 한다.
+    """
+    from .controller import plan_rows
+    from .store import DataStore
+
+    store = DataStore(args.db)
+    scan_id = store.create_scan("A2", zoom_level="detail",
+                                capture_mode="background")
+    map_max = None
+    for part in args.parts:
+        result = store.merge_scan_from(scan_id, part)
+        got = result["map_max"]
+        if got != (None, None):
+            if map_max is not None and got != map_max:
+                raise SystemExit(f"맵 크기 불일치: {part} {got} ≠ {map_max} — "
+                                 "다른 월드의 청크가 섞였는지 확인하세요")
+            map_max = got
+        print(f"병합: {part} (스캔 {result['source_scan_id']}) → "
+              f"{result['merged']:,}건 반영")
+    if map_max is None:
+        raise SystemExit("병합할 타일이 없습니다")
+    store.set_map_size(scan_id, *map_max)
+    store.set_checkpoint(scan_id, len(plan_rows(tuple(map_max))))
+    total = store.tile_count(scan_id)
+    print(f"병합 완료: 스캔 {scan_id}, 총 {total:,}타일, 맵 {map_max[0]}x{map_max[1]}")
+    print(f"다음: mapscan scan --mumu <인스턴스> --db {args.db} --csv <경로> "
+          "(재개 → 보충 방문 → 완료·CSV)")
     store.close()
     return 0
 
@@ -202,6 +261,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="이번 실행에서 처리할 최대 행 수(부분 실행·점검용)")
     scan.add_argument("--start-row", type=int,
                       help="체크포인트 대신 이 행부터 시작(점검·지정 영역용)")
+    scan.add_argument("--end-row", type=int,
+                      help="이 행 직전까지만 처리(다계정 병렬 청크 상한 — "
+                           "보충 방문 생략, 병합 후 일괄 보충)")
     scan.add_argument("--max-pans", type=int,
                       help="행당 팬 횟수 상한(점검용 — 잔여는 보충·재개 대상)")
     scan.add_argument("--new", action="store_true",
@@ -209,6 +271,19 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--settle", type=float, default=2.0)
     scan.add_argument("--csv", help="완료 시 CSV 내보내기 경로")
     scan.set_defaults(func=cmd_scan)
+
+    chunks = sub.add_parser("chunks", help="다계정 병렬 청크 분할 안내(DCR-005)")
+    chunks.add_argument("--map-size", type=int, nargs=2, metavar=("MX", "MY"),
+                        default=[1619, 1619])
+    chunks.add_argument("--accounts", type=int, required=True,
+                        help="병렬 계정(MuMu 인스턴스) 수")
+    chunks.set_defaults(func=cmd_chunks)
+
+    merge = sub.add_parser("merge", help="청크 DB 병합(최신 captured_at 우선)")
+    merge.add_argument("--db", required=True, help="병합 대상 DB(새 스캔 생성)")
+    merge.add_argument("--parts", nargs="+", required=True,
+                       help="청크 DB 경로들")
+    merge.set_defaults(func=cmd_merge)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -12,8 +12,8 @@
 | 요구사항·설계 | 요구사항 **v3** / 설계 **v4 승인 (2026-08-02, DCR-004)** — 좌표 무결성(K=3팬 클릭 재앵커 + 지연 기록·드리프트 보간). NFR-02 = 48시간(재앵커 포함 기준선 39~43시간). DCR-002·003 반영 완료 |
 | 스파이크 | S-1·S-2 완료. **S-3 완료**(입력란 조작·클램프 감지), **S-4 완료**(팝업은 닫을 수 없음 → 겹침 커버 유지), **S-5 완료·통과**(드래그 팬 실현 가능 — 아래 확정 사실 15~19, `spikes/s5_drag_pan/findings.md`), **S-6 재측정 완료**(방문 99회 — 광폭 팬 2.95s/68.2타일, 총 33~36시간, `spikes/s6_remeasure/findings.md`) |
 | 구현 완료 | T8 골격, T10 store, T9 win, T11 vision, T12 nav, **T13 controller/cli**, 부가 도구. T14: 이중 앵커 기각·팬 텔레메트리·점프 GO 재클릭·수면 안정화 폴백 + **DCR-004 재앵커·지연 기록(controller v4) 구현·실기 검증 완료** |
-| **다음 작업** | **전체 스캔 대기 — 사용자 지시 필요**. B안(MuMu) 전환 완료(DCR-005, 설계 v5)로 이제 **MuMu에서 무인 완주 가능**: `mapscan scan --mumu 용스 --db output/full.db --map-size 1619 1619 --csv output/full_csv` (일반 셸, UAC·상주 실행기 불필요, 3시 로그아웃 없음) → NFR-02 최종 판정(외삽 38~52h, MuMu 처리율 PC 동등 실측) → AC-02 최종 재대조. PC 경로(`--hwnd`)도 보존. 다계정 병렬(행 청크·DB 병합)은 미구현 — 필요시 별도 착수 |
-| 테스트 | `python -m unittest discover -s tests` — **111건** 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
+| **다음 작업** | **전체 스캔 대기 — 사용자 지시 필요**. B안(MuMu) 전환·**다계정 병렬 구현 완료**(DCR-005, 설계 v5). 권장 경로: **2계정 병렬(용스+실버) 20~27h** — 절차는 아래 B안 섹션 끝(청크 ①② 동시 → merge ③ → 보충·CSV ④). 단일 인스턴스는 38~52h. 완주 후 NFR-02 최종 판정 → AC-02 최종 재대조. PC 경로(`--hwnd`)도 보존 |
+| 테스트 | `python -m unittest discover -s tests` — **115건** 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
 | 실기 확정값 | **맵 크기 1619×1619**(자동 감지 성공), 스캔 창 클라이언트 2544×657 |
 | 테스트 클라이언트 | **계정 羊커리** (2026-08-02 기준 hwnd `0x60042`). HWND는 재시작 시 바뀌므로 `mapscan windows --crops <dir>`로 계정명 크롭을 저장해 확인한다 |
 | 커밋 | main 브랜치, origin 푸시 완료 |
@@ -336,10 +336,20 @@ T14.1(기각 튜닝) 원인 규명 중 **추측항법 좌표 드리프트**를 �
   재앵커 10/13) — **PC 실측 21.3~21.9와 동등**. 행 101은 콘텐츠성 추적 손실로 조기 종료
   (사실 25·34 유형, 오염 0). → 단일 인스턴스 전체 스캔 외삽 **38~52h 유지**, 병렬 견적
   (2계정 20~27h / 4계정 11~15h)도 유지. 병렬 동시 구동 저하는 미측정(병렬 구현 시 보정)
-- 잔여(후속): 다계정 병렬 운용(행 청크 분할·DB 병합) 설계·구현 — 별도 착수 판단.
-  **전체 스캔은 사용자 지시 대기**(이제 MuMu '용스'에서
-  `mapscan scan --mumu 용스 --db output/full.db --map-size 1619 1619 --csv output/full_csv`
-  일반 셸 실행으로 가능 — 3시 로그아웃 없음, 상주 실행기·UAC 불필요)
+- **다계정 병렬 구현·실측 완료(2026-08-02 심야):** `scan --end-row`(청크 상한·보충
+  생략), `mapscan merge`(captured_at 최신 우선 병합 + 체크포인트=전체 행 → 재개 시
+  보충 직행), `mapscan chunks --accounts N`(분할 안내). 단위 4건(총 115건).
+  **2인스턴스 동시 실측: 용스 행 105 22.4타일/s — 단독(21.8)과 동등, 병렬 저하 없음.**
+  병합 실기 3,978타일 정합. 실버(계정 羊커리, 같은 월드 확인) 행 210·211은 남서부
+  (my 1200~1300) 판독 실패 지역으로 조기 종료(증거 4장 축적 — 수확·보강 대상,
+  전체 스캔에선 재시도·보충 몫). **2계정 견적 확정 20~27h.** 4계정+ 저하는
+  미실측(인스턴스 2개 환경 — 확장 시 행 2개 실측 보정).
+- **전체 스캔은 사용자 지시 대기.** 2계정 병렬 절차(`mapscan chunks --accounts 2` 출력):
+  ① `scan --mumu 용스 --db output/part1.db --map-size 1619 1619 --new --start-row 0 --end-row 272`
+  ② `scan --mumu 실버 --db output/part2.db --map-size 1619 1619 --new --start-row 272 --end-row 544`
+  (동시 실행, 중단 후 재개는 `--end-row`만 유지) ③ `merge --db output/full.db --parts output/part1.db output/part2.db`
+  ④ `scan --mumu 용스 --db output/full.db --csv output/full_csv` (보충 방문 → 완료·CSV).
+  단일 인스턴스로 돌리려면 기존 `scan --mumu 용스 --db output/full.db --map-size 1619 1619 --csv output/full_csv` 그대로.
 
 ## 완료
 

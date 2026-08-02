@@ -127,13 +127,15 @@ class DetailScan:
 
     def run(self, scan_id: int, map_max: tuple[int, int],
             max_rows: int | None = None, start_row: int | None = None,
-            max_pans: int | None = None) -> dict:
+            max_pans: int | None = None, end_row: int | None = None) -> dict:
         rows = plan_rows(map_max)
         scan = self.store.get_scan(scan_id)
         checkpoint = int(scan["checkpoint"]) if start_row is None else start_row
         self._max_pans = max_pans or _MAX_PANS_PER_ROW
         covered = self._covered_bitmap(scan_id, map_max)
-        todo = rows[checkpoint:]
+        # end_row: 다계정 병렬의 행 청크 상한(제외 경계, DCR-005). 재개는
+        # 체크포인트 기준이므로 청크 실행을 재시작해도 같은 상한이 유지된다.
+        todo = rows[checkpoint:end_row]
         if max_rows is not None:
             todo = todo[:max_rows]
         t0 = time.monotonic()
@@ -154,7 +156,9 @@ class DetailScan:
         summary = {"rows": done, "row_failures": failed,
                    "covered": int(covered.sum()),
                    "total": (map_max[0] + 1) * (map_max[1] + 1)}
-        if max_rows is None:
+        # 보충 방문은 전체 실행에서만 — 부분(max_rows)·청크(end_row) 실행이
+        # 전 맵의 미커버를 보충하려 들면 안 된다(청크 밖은 다른 계정 몫).
+        if max_rows is None and end_row is None:
             summary["supplemented"] = self._supplement(scan_id, map_max, covered)
             summary["covered"] = int(covered.sum())
         return summary
@@ -527,7 +531,8 @@ class ScanController:
 
     def run(self, mode: str, map_max: tuple[int, int] | None = None,
             resume: bool = True, max_rows: int | None = None,
-            start_row: int | None = None, max_pans: int | None = None) -> dict:
+            start_row: int | None = None, max_pans: int | None = None,
+            end_row: int | None = None) -> dict:
         if mode != "A2":
             raise NotImplementedError(f"MODE-{mode}는 후속 범위입니다(DCR-001)")
         scan_row = self.store.latest_resumable_scan(mode) if resume else None
@@ -548,7 +553,8 @@ class ScanController:
         scanner = DetailScan(self.nav, self.store)
         try:
             summary = scanner.run(scan_id, map_max, max_rows=max_rows,
-                                  start_row=start_row, max_pans=max_pans)
+                                  start_row=start_row, max_pans=max_pans,
+                                  end_row=end_row)
         except KeyboardInterrupt:
             self.store.finish_scan(scan_id, status="paused")
             log.info("중단 — 체크포인트 저장됨(재실행 시 재개)")
@@ -556,9 +562,10 @@ class ScanController:
         except Exception:
             self.store.finish_scan(scan_id, status="paused")
             raise
+        full_run = max_rows is None and end_row is None
         complete = summary["covered"] >= summary["total"]
-        if max_rows is None and complete:
+        if full_run and complete:
             self.store.finish_scan(scan_id, status="done")
         summary["scan_id"] = scan_id
-        summary["status"] = "done" if (max_rows is None and complete) else "partial"
+        summary["status"] = "done" if (full_run and complete) else "partial"
         return summary

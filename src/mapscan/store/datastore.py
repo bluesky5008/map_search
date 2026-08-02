@@ -130,6 +130,34 @@ class DataStore:
             f" VALUES ({','.join('?' * len(_TILE_COLUMNS))})", rows)
         self._conn.commit()
 
+    def merge_scan_from(self, target_scan_id: int, source_path: str) -> dict:
+        """다른 DB(청크 스캔)의 최신 A2 스캔 타일을 대상 스캔으로 병합한다
+        (DCR-005 다계정 병렬). 같은 좌표는 captured_at이 최신인 기록이 이긴다
+        — 스캔 중 맵 상태가 변하므로 더 늦은 스냅샷이 진실에 가깝다.
+        """
+        self._conn.execute("ATTACH DATABASE ? AS src", (source_path,))
+        try:
+            scan = self._conn.execute(
+                "SELECT scan_id, map_max_x, map_max_y FROM src.scans"
+                " WHERE mode='A2' ORDER BY scan_id DESC LIMIT 1").fetchone()
+            if scan is None:
+                raise ValueError(f"A2 스캔이 없는 DB: {source_path}")
+            cols = ",".join(_TILE_COLUMNS)
+            sets = ",".join(f"{c}=excluded.{c}" for c in _TILE_COLUMNS[3:])
+            cur = self._conn.execute(
+                f"INSERT INTO tiles ({cols})"
+                f" SELECT ?, x, y, {','.join(_TILE_COLUMNS[3:])}"
+                f" FROM src.tiles WHERE scan_id=?"
+                f" ON CONFLICT(scan_id, x, y) DO UPDATE SET {sets}"
+                f" WHERE excluded.captured_at > tiles.captured_at",
+                (target_scan_id, scan["scan_id"]))
+            self._conn.commit()
+            return {"source_scan_id": int(scan["scan_id"]),
+                    "map_max": (scan["map_max_x"], scan["map_max_y"]),
+                    "merged": cur.rowcount}
+        finally:
+            self._conn.execute("DETACH DATABASE src")
+
     def tile_count(self, scan_id: int) -> int:
         return self._conn.execute(
             "SELECT COUNT(*) FROM tiles WHERE scan_id=?", (scan_id,)).fetchone()[0]

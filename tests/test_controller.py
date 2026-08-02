@@ -320,5 +320,42 @@ class ControllerLifecycleTest(unittest.TestCase):
             store.close()
 
 
+class ChunkRunTest(unittest.TestCase):
+    """다계정 병렬 청크(end_row) — 상한·체크포인트 재개·보충 생략 (DCR-005)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = DataStore(str(Path(self.tmp.name) / "t.db"))
+        self.addCleanup(self.store.close)
+        self.scan_id = self.store.create_scan("A2")
+        self.rows_run: list[int] = []
+        scanner = DetailScan.__new__(DetailScan)
+        scanner.store = self.store
+        scanner._run_row = (
+            lambda scan_id, row, map_max, covered: self.rows_run.append(row.index))
+        scanner._supplement = mock.Mock(
+            side_effect=AssertionError("청크·부분 실행에서 보충 방문 금지"))
+        self.scanner = scanner
+
+    def test_end_row_bounds_resume_and_skips_supplement(self):
+        s = self.scanner.run(self.scan_id, (100, 100), end_row=5)
+        self.assertEqual(self.rows_run, [0, 1, 2, 3, 4])
+        self.assertEqual(s["rows"], 5)
+        self.assertNotIn("supplemented", s)
+        # 재실행(체크포인트 5): 같은 상한이면 처리할 행이 없다 — 멱등
+        self.rows_run.clear()
+        self.scanner.run(self.scan_id, (100, 100), end_row=5)
+        self.assertEqual(self.rows_run, [])
+        # 상한을 늘리면 체크포인트에서 이어서 진행한다
+        self.scanner.run(self.scan_id, (100, 100), end_row=7)
+        self.assertEqual(self.rows_run, [5, 6])
+
+    def test_full_run_still_supplements(self):
+        self.scanner._supplement = mock.Mock(return_value=3)
+        self.scanner.run(self.scan_id, (100, 100))
+        self.scanner._supplement.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

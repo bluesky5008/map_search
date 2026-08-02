@@ -2,8 +2,8 @@
 
 게임 **"삼국지-전략판"** PC 클라이언트의 월드맵 전 좌표를 자동 순회하며 좌표별 토지 정보를 추출해 파일로 저장하는 stand-alone Windows 도구입니다. 게임이 좌표별 토지 데이터를 외부로 제공하지 않으므로, 화면 캡처·이미지 인식·UI 자동 조작으로 정보를 수집합니다.
 
-> **상태 (2026-08-02):** 요구사항 **v3** / 설계 **v5** 승인([DCR-005](docs/work/20260801-worldmap-land-scan/changes/DCR-005-mumu-execution-target.md) — 실행 대상을 **MuMu 에뮬레이터**로 전환, PC는 새벽 3시 일괄 로그아웃으로 무인 완주 불가). 전 계층 구현 완료(`mapscan scan --mumu` 동작), MuMu 처리율 실측 **21.8타일/s**(PC 21.3~21.9와 동등), 지정 영역 스캔·AC-01/03/06 통과.
-> **남은 것:** 전체 스캔 1회 완주(예상 38~52시간, MuMu에서 무인 가능 — 착수는 사용자 지시 대기) → NFR-02(48h) 최종 판정 → AC-02 최종 재대조 → 최종 보고(T15).
+> **상태 (2026-08-02):** 요구사항 **v3** / 설계 **v5** 승인([DCR-005](docs/work/20260801-worldmap-land-scan/changes/DCR-005-mumu-execution-target.md) — 실행 대상을 **MuMu 에뮬레이터**로 전환, PC는 새벽 3시 일괄 로그아웃으로 무인 완주 불가). 전 계층 구현 완료(`mapscan scan --mumu` 동작), MuMu 처리율 실측 **21.8타일/s**(PC와 동등), **다계정 병렬**(행 청크·DB 병합) 구현 — 2인스턴스 동시 실측 저하 없음.
+> **남은 것:** 전체 스캔 1회 완주(2계정 병렬 20~27시간 또는 단일 38~52시간 — 착수는 사용자 지시 대기) → NFR-02(48h) 최종 판정 → AC-02 최종 재대조 → 최종 보고(T15).
 > 진행 현황과 재개 지점은 [docs/work/20260801-worldmap-land-scan/plan.md](docs/work/20260801-worldmap-land-scan/plan.md)에서 관리합니다.
 
 ## 수집하는 정보
@@ -125,8 +125,13 @@ x,y,category,kind,level,occupancy,center_x,center_y,center_estimated,confidence,
 # 대상 창 목록 — MuMu 인스턴스와 PC 클라이언트 창을 함께 표시합니다
 .venv\Scripts\python -m mapscan.cli windows --crops output
 
-# 전체 스캔 — MuMu (일반 셸, 무인 완주 가능. 재실행하면 체크포인트에서 재개)
+# 전체 스캔 — MuMu 단일 인스턴스 (일반 셸, 무인 완주 가능. 재실행하면 체크포인트에서 재개)
 .venv\Scripts\python -m mapscan.cli scan --mumu 용스 --map-size 1619 1619 --db output\full.db --csv output\full_csv
+
+# 전체 스캔 — MuMu 다계정 병렬 (행 청크 분할, 실측 저하 없음 — 2계정이면 약 절반 시간)
+.venv\Scripts\python -m mapscan.cli chunks --accounts 2      # 청크별 실행 명령 안내
+#  → 안내대로 계정별 scan --end-row 를 동시 실행(별도 DB) → merge → 재개 실행이 보충·CSV까지 수행
+.venv\Scripts\python -m mapscan.cli merge --db output\full.db --parts output\part1.db output\part2.db
 
 # 전체 스캔 — PC 클라이언트 (관리자 권한 필요, 새벽 3시 로그아웃 유의)
 .venv\Scripts\python -m mapscan.cli scan --hwnd 0x60042 --db output\full.db --csv output\full_csv
@@ -192,7 +197,7 @@ map_search/
 ├── tools/set-client-quadrant.ps1  # ✅ 창 크기 조절 (독립 실행)
 ├── tools/agent_shell.ps1        # 상주 관리자 실행기 (UAC 1회로 명령 파일 순차 실행)
 ├── run_elevated.ps1             # 관리자 권한 실행 러너
-└── tests/                       # 단위·회귀 테스트 (현재 111건)
+└── tests/                       # 단위·회귀 테스트 (현재 115건)
 ```
 
 ## 문서

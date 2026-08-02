@@ -88,5 +88,51 @@ class CsvExportTest(unittest.TestCase):
             export_csv(self.store, 999, self.tmp.name)
 
 
+class MergeScanTest(unittest.TestCase):
+    """다계정 병렬 청크 DB 병합(DCR-005) — captured_at 최신 우선."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _part(self, name, tiles, map_size=(100, 100)):
+        path = str(Path(self.tmp.name) / name)
+        st = DataStore(path)
+        sid = st.create_scan("A2")
+        st.set_map_size(sid, *map_size)
+        st.upsert_tiles(sid, [
+            TileRecord(x=x, y=y, category=cat, captured_at=ts)
+            for x, y, cat, ts in tiles])
+        st.close()
+        return path
+
+    def test_latest_captured_at_wins_regardless_of_order(self):
+        a = self._part("a.db", [(1, 1, "공터", "2026-08-02T10:00:00+09:00"),
+                                (2, 2, "resource", "2026-08-02T10:00:00+09:00")])
+        b = self._part("b.db", [(1, 1, "resource", "2026-08-02T11:00:00+09:00"),
+                                (3, 3, "공터", "2026-08-02T11:00:00+09:00")])
+        for i, order in enumerate(((a, b), (b, a))):
+            target = DataStore(str(Path(self.tmp.name) / f"target{i}.db"))
+            sid = target.create_scan("A2")
+            for part in order:
+                result = target.merge_scan_from(sid, part)
+                self.assertEqual(result["map_max"], (100, 100))
+            self.assertEqual(target.tile_count(sid), 3)
+            got = {(r["x"], r["y"]): r["category"]
+                   for r in target.iter_tiles(sid)}
+            # (1,1)은 어느 순서로 병합해도 최신(11시, resource)이 이긴다
+            self.assertEqual(got[(1, 1)], "resource")
+            target.close()
+
+    def test_part_without_a2_scan_raises(self):
+        path = str(Path(self.tmp.name) / "empty.db")
+        DataStore(path).close()
+        target = DataStore(str(Path(self.tmp.name) / "t.db"))
+        self.addCleanup(target.close)
+        sid = target.create_scan("A2")
+        with self.assertRaises(ValueError):
+            target.merge_scan_from(sid, path)
+
+
 if __name__ == "__main__":
     unittest.main()
