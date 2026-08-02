@@ -29,6 +29,10 @@ EVIDENCE_COORDS = [
     ("spikes/t14_pan_tuning/work/ev_r149a.png", (60, 132, 300, 162), (36, 890)),
     ("spikes/t14_pan_tuning/work/ev_r150b.png", (60, 156, 300, 186), (71, 863)),
     ("spikes/t14_pan_tuning/work/ev_r151e.png", (60, 114, 300, 144), (206, 733)),
+    # 2차 수확(paren_l_8~10) — 지정 영역 스캔 잔존 실패 코퍼스에서 추가
+    ("spikes/t14_pan_tuning/work/ev_r153a.png", (60, 144, 300, 174), (71, 880)),
+    ("spikes/t14_pan_tuning/work/ev_r162a.png", (60, 126, 300, 156), (70, 937)),
+    ("spikes/t14_pan_tuning/work/ev_r163a.png", (60, 132, 300, 162), (405, 607)),
 ]
 
 

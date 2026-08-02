@@ -35,6 +35,10 @@ TEMPLATE_KINDS: dict[str, tuple[str, str]] = {
     "wood": ("resource", "목재"),
     "iron_occ": ("resource", "철광"),   # 점령형(생산 시설) — T14.3 실기
     "food_occ": ("resource", "식량"),   # 점령형(밭) — T14.3 실기
+    # 중립형(AC-02 재대조, T14 실기 표본 — 팝업 진실 좌표는 plan.md 사실 43):
+    "iron_neu": ("resource", "철광"),   # Lv.1 작은 광석 — 공터 오분류 1건의 해소
+    "stone_neu3": ("resource", "석재"),  # Lv.3 바위 무더기
+    "stone_neu5": ("resource", "석재"),  # Lv.5 바위 무더기
 }
 MATCH_THRESHOLD = 0.5
 _MATCH_SLACK = 8  # 그리드 오차 허용 탐색 여유(px)

@@ -122,6 +122,19 @@ class FieldSampleRegressionTest(unittest.TestCase):
         r = self._classify("tiles_occ_05")
         self.assertEqual(r.occupancy, "enemy", msg=f"{r}")
 
+    def test_neutral_resource_templates(self):
+        # AC-02 중립형 확충(T14 v2 수집, 팝업 진실 캡처 neutral_*_popup.png):
+        # Lv.1 철광 (185,794) — 공터 오분류 1건의 해소, Lv.3/Lv.5 석재 —
+        # 기존 미상(보수)에서 종류 판정으로 개선. 픽스처 중심 = 스프라이트 중심
+        for name, kind in (("neutral_iron_lv1", "철광"),
+                           ("neutral_stone_lv3", "석재"),
+                           ("neutral_stone_lv5", "석재")):
+            with self.subTest(name=name):
+                r = self.clf.classify(
+                    load_rgb(T14_WORK / f"{name}_cell.png"), 120, 80)
+                self.assertEqual((r.category, r.kind, r.occupancy),
+                                 ("resource", kind, "neutral"), msg=f"{r}")
+
     def test_one_sided_green_not_mine(self):
         # 무주 공터가 mine으로 오탐된 실기 사례(진실: 팝업 "공터 (181,801)" 등
         # 2건) — 인접 밭의 밝은 초록이 한쪽 변에만 샘플링된 경우를 기각한다

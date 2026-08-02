@@ -32,10 +32,13 @@ class WgcCapture:
         self._lock = threading.Lock()
         self._ready = threading.Event()
         self._stop = threading.Event()
-        self._error: BaseException | None = None
-        self._thread: threading.Thread | None = None
+        self._control = None  # CaptureControl (start_free_threaded)
 
     def start(self, timeout: float = 10.0) -> None:
+        # 세션은 반드시 start_free_threaded(러스트 관리 스레드)로 돌린다.
+        # 파이썬 스레드에서 blocking start()로 돌리면 세션이 살아 있는 동안
+        # 메인 스레드의 CPU 작업이 4~5배 느려진다(T14 실측: 분류 6ms → 31ms/셀
+        # — NFR-02 처리율 저하의 주원인. free-threaded에서는 6.8ms로 동일).
         capture = WindowsCapture(cursor_capture=False, draw_border=False,
                                  window_hwnd=self.hwnd)
 
@@ -52,19 +55,12 @@ class WgcCapture:
             self._stop.set()
             self._ready.set()
 
-        def run():
-            try:
-                capture.start()
-            except BaseException as exc:  # 세션 스레드의 예외를 호출자에게 전달
-                self._error = exc
-                self._ready.set()
-
-        self._thread = threading.Thread(target=run, daemon=True)
-        self._thread.start()
+        try:
+            self._control = capture.start_free_threaded()
+        except BaseException as exc:
+            raise RuntimeError(f"캡처 세션 시작 실패: {exc}")
         if not self._ready.wait(timeout):
             raise RuntimeError(f"캡처 첫 프레임 시간 초과 ({timeout}s)")
-        if self._error is not None:
-            raise RuntimeError(f"캡처 세션 시작 실패: {self._error}")
         self._verify_binding()
 
     def _verify_binding(self) -> None:
@@ -100,8 +96,8 @@ class WgcCapture:
 
     def stop(self) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=3.0)
+        if self._control is not None:
+            self._control.stop()
 
     def __enter__(self) -> "WgcCapture":
         self.start()
