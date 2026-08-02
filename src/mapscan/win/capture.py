@@ -1,8 +1,9 @@
 """Windows Graphics Capture — 가림 상태에서도 프레임을 얻는다 (ADR-002, S-1a).
 
-`windows-capture`는 창을 제목으로만 매칭하므로, 동일 제목 창이 여럿이면 z순서에
-따라 다른 창이 선택된다(S-1 실측). 세션 시작 직전 대상 HWND를 z 최상단으로 올려
-바인딩을 확정하고, 첫 프레임 크기를 대상 창과 대조해 검증한다.
+동일 제목 창이 여럿이면 제목 매칭은 z순서에 따라 다른 창을 잡는다(S-1 실측).
+`windows-capture` 2.x의 `window_hwnd`로 **HWND에 직접 바인딩**한다. 크기 검증은
+같은 크기의 두 창을 구분하지 못하므로(T12 실측 — 제목 매칭 + z-raise 방식이
+조용히 다른 창을 잡아 실기 조작이 화면에 반영되지 않았다) 보조 수단일 뿐이다.
 """
 
 from __future__ import annotations
@@ -24,9 +25,9 @@ BIND_TOLERANCE = 24  # WGC 프레임과 창 외곽 크기의 허용 오차(px)
 class WgcCapture:
     """대상 창의 최신 프레임을 보관하는 상시 캡처 세션."""
 
-    def __init__(self, hwnd: int, title: str):
+    def __init__(self, hwnd: int, title: str = ""):
         self.hwnd = hwnd
-        self.title = title
+        self.title = title  # 로그·진단용 (바인딩은 HWND로 한다)
         self._frame: np.ndarray | None = None
         self._lock = threading.Lock()
         self._ready = threading.Event()
@@ -35,9 +36,8 @@ class WgcCapture:
         self._thread: threading.Thread | None = None
 
     def start(self, timeout: float = 10.0) -> None:
-        win32.raise_to_top(self.hwnd)
         capture = WindowsCapture(cursor_capture=False, draw_border=False,
-                                 window_name=self.title)
+                                 window_hwnd=self.hwnd)
 
         @capture.event
         def on_frame_arrived(frame: Frame, control: InternalCaptureControl):

@@ -103,9 +103,12 @@ class GridMapper:
         """셀 전체가 프레임 안에 있고 제외 영역과 겹치지 않는 타일들.
 
         exclude: (x0, y0, x1, y1) 사각형 목록 — HUD·팝업 등 오클루전 영역.
+        프레임 경계는 셀 bbox 기준(템플릿 탐색 여유 포함), 제외 영역은 셀의
+        실제 평행사변형 기준으로 판정한다(bbox 후광으로 커버리지가 줄지 않도록).
         """
         w, h = frame_size
         hx, hy = self.basis.half_extents
+        excl = list(exclude)
         corners = [self.to_map(x, y) for x, y in
                    ((0, 0), (w, 0), (0, h), (w, h))]
         mxs = [c[0] for c in corners]
@@ -116,12 +119,36 @@ class GridMapper:
                 px, py = self.to_screen(mx, my)
                 if not (hx <= px <= w - hx and hy <= py <= h - hy):
                     continue
-                box = (px - hx, py - hy, px + hx, py + hy)
-                if any(box[0] < r[2] and r[0] < box[2] and
-                       box[1] < r[3] and r[1] < box[3] for r in exclude):
+                if any(_cell_intersects_rect((px, py), self.basis, r) for r in excl):
                     continue
                 cells.append(Cell(mx, my, px, py))
         return cells
+
+
+def _cell_intersects_rect(center: tuple[float, float], basis: GridBasis,
+                          rect: tuple[float, float, float, float]) -> bool:
+    """타일 평행사변형과 축정렬 사각형의 교차 여부 (분리축 정리).
+
+    분리축 후보: 사각형의 x·y축 + 평행사변형 두 변의 법선.
+    """
+    cx, cy = center
+    x0, y0, x1, y1 = rect
+    e1 = np.array(basis.e_mx)
+    e2 = np.array(basis.e_my)
+    # 축 1·2: x, y (사각형 법선) — 평행사변형의 축상 반경은 half_extents
+    hx, hy = basis.half_extents
+    if cx + hx <= x0 or x1 <= cx - hx or cy + hy <= y0 or y1 <= cy - hy:
+        return False
+    # 축 3·4: 평행사변형 변의 법선
+    rect_pts = np.array([(x0, y0), (x1, y0), (x0, y1), (x1, y1)], dtype=np.float64)
+    for ev in (e1, e2):
+        axis = np.array([-ev[1], ev[0]])
+        para_r = abs(axis @ e1) / 2 + abs(axis @ e2) / 2
+        para_c = axis @ (cx, cy)
+        proj = rect_pts @ axis
+        if para_c + para_r <= proj.min() or proj.max() <= para_c - para_r:
+            return False
+    return True
 
 
 def find_selection_highlight(frame: np.ndarray,

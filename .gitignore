@@ -3,6 +3,10 @@ __pycache__/
 *.pyc
 *.egg-info/
 output/
+# S-3/S-4 스파이크 작업 산출물(캡처 200여 장, 100MB+) — 증거 파일만 선별 커밋한다
+spikes/s3_nav_ui/work/
+!spikes/s3_nav_ui/work/*.log
+!spikes/s3_nav_ui/work/agent_status.txt
 *.db
 *.db-wal
 *.db-shm

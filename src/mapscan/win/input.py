@@ -58,3 +58,32 @@ class PostMessageInput:
         for ch in text:
             win32.post(self.hwnd, win32.WM_CHAR, ord(ch), 0)
             time.sleep(0.03)
+
+    def key(self, vk: int, count: int = 1) -> None:
+        """가상 키 입력(WM_KEYDOWN/UP). 백스페이스 등 편집 키 전달용."""
+        for _ in range(count):
+            win32.post(self.hwnd, win32.WM_KEYDOWN, vk, 0)
+            time.sleep(0.02)
+            win32.post(self.hwnd, win32.WM_KEYUP, vk, 0xC0000000)
+            time.sleep(0.03)
+
+    def double_click(self, x: int, y: int) -> None:
+        lp = _lparam(x, y)
+        self.click(x, y)
+        time.sleep(0.05)
+        win32.post(self.hwnd, win32.WM_LBUTTONDBLCLK, win32.MK_LBUTTON, lp)
+        time.sleep(0.05)
+        win32.post(self.hwnd, win32.WM_LBUTTONUP, 0, lp)
+
+    def drag(self, x0: int, y0: int, x1: int, y1: int,
+             steps: int = 12, hold: float = 0.03) -> None:
+        """버튼을 누른 채 이동 — 지도 팬(이동 전략 후보) 검증용."""
+        win32.post(self.hwnd, win32.WM_MOUSEMOVE, 0, _lparam(x0, y0))
+        win32.post(self.hwnd, win32.WM_LBUTTONDOWN, win32.MK_LBUTTON, _lparam(x0, y0))
+        time.sleep(hold)
+        for i in range(1, steps + 1):
+            x = x0 + (x1 - x0) * i // steps
+            y = y0 + (y1 - y0) * i // steps
+            win32.post(self.hwnd, win32.WM_MOUSEMOVE, win32.MK_LBUTTON, _lparam(x, y))
+            time.sleep(hold)
+        win32.post(self.hwnd, win32.WM_LBUTTONUP, 0, _lparam(x1, y1))
