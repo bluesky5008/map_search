@@ -1,0 +1,53 @@
+{
+  "map_btn": {
+    "found": [
+      11,
+      510
+    ],
+    "ncc": 0.8995,
+    "implied_origin": [
+      1,
+      40
+    ]
+  },
+  "jeonbo_btn": {
+    "found": [
+      11,
+      568
+    ],
+    "ncc": 0.8792,
+    "implied_origin": [
+      1,
+      40
+    ]
+  },
+  "seosin_btn": {
+    "found": [
+      571,
+      54
+    ],
+    "ncc": 0.4385,
+    "implied_origin": [
+      561,
+      -586
+    ]
+  },
+  "game_origin": {
+    "value": [
+      1,
+      40
+    ],
+    "all_agree": true,
+    "n_good": 2
+  },
+  "gate5_read": {
+    "coords": [
+      850,
+      806
+    ],
+    "strip_at": [
+      1250,
+      86
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "instance": "용스",
+  "hwnds": {
+    "top": "0x1b1ee2",
+    "device": "0xa03b6",
+    "display": "0xba0076"
+  },
+  "top_rect": [
+    3,
+    2,
+    2552,
+    701
+  ],
+  "top_client": [
+    2544,
+    697
+  ],
+  "display_client": [
+    2544,
+    657
+  ],
+  "tab_offset_in_client": [
+    0,
+    40
+  ],
+  "targets": {
+    "top": {
+      "ok": true,
+      "frame": [
+        2546,
+        698
+      ],
+      "game_origin_in_frame": [
+        4,
+        40
+      ]
+    },
+    "device": {
+      "ok": false,
+      "error": "시작 실패: Exception: Capture session threw an exception: Failed to convert item to `GraphicsCaptureItem`"
+    },
+    "display": {
+      "ok": false,
+      "error": "시작 실패: Exception: Capture session threw an exception: Failed to convert item to `GraphicsCaptureItem`"
+    }
+  }
+}

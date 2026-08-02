@@ -1,0 +1,36 @@
+{
+  "instance": "용스",
+  "click_at": [
+    600,
+    450
+  ],
+  "targets": [
+    {
+      "display": {
+        "hwnd": "0xba0076",
+        "ring": null,
+        "ring_near_click": false,
+        "popup_coords": null,
+        "changed_fraction": 0.0345
+      }
+    },
+    {
+      "device": {
+        "hwnd": "0xa03b6",
+        "ring": null,
+        "ring_near_click": false,
+        "popup_coords": null,
+        "changed_fraction": 0.1248
+      }
+    },
+    {
+      "top": {
+        "hwnd": "0x1b1ee2",
+        "ring": null,
+        "ring_near_click": false,
+        "popup_coords": null,
+        "changed_fraction": 0.0242
+      }
+    }
+  ]
+}
