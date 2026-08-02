@@ -1,0 +1,23 @@
+﻿에이전트 연결 확인 (다음 명령 #1)
+프레임 2546x689, 클라이언트 오프셋 (1, 31), 지도 모드 마커 0.17
+점프 (1020, 620) 완료 (20.0s), 앵커 (1226.0, 368.0)
+
+[G1] 소폭 드래그 (-300, 0)
+python.exe : Traceback (most recent call last):
+At line:1 char:302
++ ... tch {} } }; & C:\src\git\map_search\.venv\Scripts\python.exe C:\src\g ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\src\git\map_search\spikes\s5_drag_pan\driver.py", line 305, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "C:\src\git\map_search\spikes\s5_drag_pan\driver.py", line 180, in main
+    before, after, (dx, dy, score) = do_drag(
+                                     ~~~~~~~^
+        nav, inp, cap, (1800, 300), (1500, 300))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\src\git\map_search\spikes\s5_drag_pan\driver.py", line 142, in do_drag
+    raise RuntimeError(f"지도 모드 아님(마커 {nav.map_mode_score(before):.2f}) — 드래그 중단")
+RuntimeError: 지도 모드 아님(마커 0.17) — 드래그 중단

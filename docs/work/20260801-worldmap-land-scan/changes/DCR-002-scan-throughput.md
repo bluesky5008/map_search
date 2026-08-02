@@ -103,5 +103,5 @@ NFR-02는 MODE-A2 전체 스캔을 **하루 이내**로 규정하고 "실측으�
 - 후속 조치
   - [x] DCR-002 상태 → 승인 (안 d)
   - [x] design-change-log.md에 승인 결과 반영
-  - [ ] S-5 수행 (wf-implement, plan.md T7b)
-  - [ ] S-5 결과에 따라: 최적화 적용·재측정 후 NFR-02 확정 DCR, 또는 (a) 전환 기록
+  - [x] S-5 수행 (wf-implement, plan.md T7b) — **통과** (2026-08-02, `spikes/s5_drag_pan/findings.md`)
+  - [ ] 최적화 1~3 적용 → 방문 100회 실측 → NFR-02 확정 DCR 발행

@@ -10,3 +10,9 @@ spikes/s3_nav_ui/work/
 *.db
 *.db-wal
 *.db-shm
+
+# S-5 스파이크 작업 산출물(캡처 100여 장) — 로그·결과만 선별 커밋한다
+spikes/s5_drag_pan/work*/*
+!spikes/s5_drag_pan/work/*.log
+!spikes/s5_drag_pan/work/agent_status.txt
+!spikes/s5_drag_pan/work/s5_results.json
