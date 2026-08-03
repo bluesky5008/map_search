@@ -139,6 +139,10 @@ x,y,category,kind,level,occupancy,center_x,center_y,center_estimated,confidence,
 # 부분 실행·점검 (행 150부터 1행, 팬 12회 한도)
 .venv\Scripts\python -m mapscan.cli scan --hwnd 0x60042 --start-row 150 --max-rows 1 --max-pans 12
 
+# 시각 기반 자기 정지 — 08:00 도달 시 행 경계에서 체크포인트 저장 후 정지(paused)
+# HH:MM이 현재보다 과거면 익일로 해석. 재실행하면 체크포인트에서 재개
+.venv\Scripts\python -m mapscan.cli scan --mumu 용스 --db output\part1.db --end-row 272 --until 08:00
+
 # 스캔 창 설정 → 캡처 → 클릭 → 복원 점검 (관리자 권한 필요)
 .\run_elevated.ps1 -Cmd "probe --hwnd 0x503dc --out output\probe.png --click 700 350"
 
@@ -151,6 +155,27 @@ x,y,category,kind,level,occupancy,center_x,center_y,center_estimated,confidence,
 
 `--anchor`는 프레임 안에서 좌표를 아는 타일(선택 하이라이트가 있는 타일)의 맵 좌표입니다. 스캔 중에는 `Navigator.jump`이 이 앵커를 자동으로 확정합니다.
 
+### 예약 운용 (매일 지정 시간대 무인 스캔)
+
+전체 스캔을 매일 지정 시간대(기본 22:00→익일 08:00)에만 돌립니다. Windows 작업
+스케줄러가 파트(계정)별 태스크를 시작하고, 스캔은 `--until`로 스스로 정지하며,
+다음 날 실행이 체크포인트에서 재개합니다. 파트 구성(계정·행 범위·DB)은
+`tools\schedule-scan.ps1` 상단 `$Parts` 표에서 수정합니다.
+
+```powershell
+.\tools\schedule-scan.ps1 -Register                              # 확정값(22:00~08:00) 등록
+.\tools\schedule-scan.ps1 -Register -StartTime 21:30 -StopTime 07:00
+.\tools\schedule-scan.ps1 -Status                                # 태스크·체크포인트(완주) 확인
+.\tools\schedule-scan.ps1 -Run -Part 1 -StopTime 08:00           # 래퍼 수동 점검(등록 없이)
+.\tools\schedule-scan.ps1 -Unregister                            # 완주 후 수동 해제
+```
+
+- 첫 실행(`--new --start-row`)/재개는 래퍼가 파트 DB의 재개 가능 스캔 유무로 자동 판별합니다.
+- 태스크는 **로그온한 사용자 세션에서만** 실행됩니다(Interactive — PostMessage·WGC 전제). 일반 권한, UAC 불필요.
+- 로그아웃·시스템 절전·MuMu 창 최소화 금지는 무인 운용 수칙 그대로이며, 절전 해제(전원 옵션)는 직접 확인하세요.
+- 청크 완주 후의 일일 실행은 0행 처리로 무해합니다. 해제는 수동이며 `-Status`가 파트별 완주를 표시합니다.
+- 실행 로그는 `output\schedule_part<N>.log`에 누적됩니다. 전 파트 완주 후 `merge` → 보충·CSV 절차는 위 다계정 병렬 안내와 같습니다.
+
 ### 실기 검증 (스파이크)
 
 ```powershell
@@ -161,7 +186,7 @@ powershell -ExecutionPolicy Bypass -File spikes\s3_nav_ui\run_live.ps1 -Hwnd 0x6
 ### 테스트
 
 ```powershell
-.venv\Scripts\python -m unittest discover -s tests   # 현재 100건
+.venv\Scripts\python -m unittest discover -s tests   # 현재 125건
 ```
 
 ## 프로젝트 구조

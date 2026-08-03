@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +59,23 @@ def _sanity_window(pans_since: int, losts: int) -> int:
     오판독은 글리프 변형·최빈값 투표로 방어하며, 전형적 오판독 거리(≥50)는
     이 창이 여전히 기각한다."""
     return 2 + 3 * pans_since + 15 * losts
+
+
+def parse_until(spec: str, now: datetime | None = None) -> datetime:
+    """`--until HH:MM`을 다음 도래 시각으로 해석한다(현재 시각 이하면 익일).
+
+    예약 운용(22:00 시작 → 익일 08:00 정지)에서 정지 시각은 대개 시작보다
+    과거의 시각 문자열이므로, 과거는 익일로 넘긴다.
+    """
+    try:
+        t = datetime.strptime(spec, "%H:%M").time()
+    except ValueError:
+        raise ValueError(f"--until 형식은 HH:MM (예: 08:00): {spec!r}") from None
+    now = now or datetime.now()
+    deadline = datetime.combine(now.date(), t)
+    if deadline <= now:
+        deadline += timedelta(days=1)
+    return deadline
 
 
 def _read_popup_coords(reader, frame, cx, cy):
@@ -127,7 +145,8 @@ class DetailScan:
 
     def run(self, scan_id: int, map_max: tuple[int, int],
             max_rows: int | None = None, start_row: int | None = None,
-            max_pans: int | None = None, end_row: int | None = None) -> dict:
+            max_pans: int | None = None, end_row: int | None = None,
+            until: float | None = None) -> dict:
         rows = plan_rows(map_max)
         scan = self.store.get_scan(scan_id)
         checkpoint = int(scan["checkpoint"]) if start_row is None else start_row
@@ -140,7 +159,15 @@ class DetailScan:
             todo = todo[:max_rows]
         t0 = time.monotonic()
         done = failed = 0
+        deadline_hit = False
         for row in todo:
+            # 시각 기반 자기 정지: 행 경계에서만 검사한다 — 진행 중인 행의
+            # 버퍼·체크포인트 상태를 건드리지 않아 기존 재개 경로가 그대로 쓰인다.
+            if until is not None and time.time() >= until:
+                deadline_hit = True
+                log.info("정지 시각 도달(--until) — 행 %d 시작 전 정지"
+                         "(체크포인트 유지, 재실행 시 재개)", row.index)
+                break
             try:
                 self._run_row(scan_id, row, map_max, covered)
             except (NotDetailView, NotInMapMode, StabilizeTimeout,
@@ -158,9 +185,13 @@ class DetailScan:
                    "total": (map_max[0] + 1) * (map_max[1] + 1)}
         # 보충 방문은 전체 실행에서만 — 부분(max_rows)·청크(end_row) 실행이
         # 전 맵의 미커버를 보충하려 들면 안 된다(청크 밖은 다른 계정 몫).
-        if max_rows is None and end_row is None:
-            summary["supplemented"] = self._supplement(scan_id, map_max, covered)
+        if max_rows is None and end_row is None and not deadline_hit:
+            summary["supplemented"] = self._supplement(scan_id, map_max, covered,
+                                                       until=until)
             summary["covered"] = int(covered.sum())
+            if until is not None and time.time() >= until:
+                deadline_hit = True
+        summary["deadline"] = deadline_hit
         return summary
 
     # -- 행 하나 ------------------------------------------------------------
@@ -459,14 +490,21 @@ class DetailScan:
     # -- 보충 방문 (AC-05, 점프 폴백 경로) -----------------------------------
 
     def _supplement(self, scan_id: int, map_max: tuple[int, int],
-                    covered: np.ndarray) -> int:
+                    covered: np.ndarray, until: float | None = None) -> int:
         missing = {(int(x), int(y)) for y, x in np.argwhere(~covered)}
         if not missing:
             return 0
         log.info("미커버 %s타일 — 점프 보충 방문 시작", f"{len(missing):,}")
         planner = ScanPlanner(map_max)
         visits = planner.supplemental_visits(missing, start_index=0)
+        done = 0
         for v in visits:
+            # 방문 사이 정지 검사 — 잔여 미커버는 다음 실행이 다시 산출한다
+            if until is not None and time.time() >= until:
+                log.info("정지 시각 도달(--until) — 보충 방문 %d/%d에서 중단",
+                         done, len(visits))
+                break
+            done += 1
             try:
                 grid = self.nav.jump(*v.center)
                 frame = self.nav.capture.grab_fresh()
@@ -491,7 +529,7 @@ class DetailScan:
             except (NotDetailView, NotInMapMode, StabilizeTimeout,
                     WatchdogAlert) as exc:
                 log.warning("보충 방문 %s 실패: %s", v.center, exc)
-        return len(visits)
+        return done
 
 
 def _band_cells(grid: GridMapper, tracker: PanTracker,
@@ -532,7 +570,7 @@ class ScanController:
     def run(self, mode: str, map_max: tuple[int, int] | None = None,
             resume: bool = True, max_rows: int | None = None,
             start_row: int | None = None, max_pans: int | None = None,
-            end_row: int | None = None) -> dict:
+            end_row: int | None = None, until: float | None = None) -> dict:
         if mode != "A2":
             raise NotImplementedError(f"MODE-{mode}는 후속 범위입니다(DCR-001)")
         scan_row = self.store.latest_resumable_scan(mode) if resume else None
@@ -554,7 +592,7 @@ class ScanController:
         try:
             summary = scanner.run(scan_id, map_max, max_rows=max_rows,
                                   start_row=start_row, max_pans=max_pans,
-                                  end_row=end_row)
+                                  end_row=end_row, until=until)
         except KeyboardInterrupt:
             self.store.finish_scan(scan_id, status="paused")
             log.info("중단 — 체크포인트 저장됨(재실행 시 재개)")
@@ -564,8 +602,15 @@ class ScanController:
             raise
         full_run = max_rows is None and end_row is None
         complete = summary["covered"] >= summary["total"]
+        summary["scan_id"] = scan_id
         if full_run and complete:
             self.store.finish_scan(scan_id, status="done")
-        summary["scan_id"] = scan_id
-        summary["status"] = "done" if (full_run and complete) else "partial"
+            summary["status"] = "done"
+        elif summary.get("deadline"):
+            # 시각 정지는 수동 중단(Ctrl+C)과 같은 paused 경로 — 재개 가능
+            self.store.finish_scan(scan_id, status="paused")
+            log.info("정지 시각 도달 — 체크포인트 저장됨(재실행 시 재개)")
+            summary["status"] = "paused"
+        else:
+            summary["status"] = "partial"
         return summary

@@ -12,8 +12,8 @@
 | 요구사항·설계 | 요구사항 **v3** / 설계 **v4 승인 (2026-08-02, DCR-004)** — 좌표 무결성(K=3팬 클릭 재앵커 + 지연 기록·드리프트 보간). NFR-02 = 48시간(재앵커 포함 기준선 39\~43시간). DCR-002·003 반영 완료 |
 | 스파이크 | S-1·S-2 완료. **S-3 완료**(입력란 조작·클램프 감지), **S-4 완료**(팝업은 닫을 수 없음 → 겹침 커버 유지), **S-5 완료·통과**(드래그 팬 실현 가능 — 아래 확정 사실 15\~19, `spikes/s5_drag_pan/findings.md`), **S-6 재측정 완료**(방문 99회 — 광폭 팬 2.95s/68.2타일, 총 33\~36시간, `spikes/s6_remeasure/findings.md`) |
 | 구현 완료 | T8 골격, T10 store, T9 win, T11 vision, T12 nav, **T13 controller/cli**, 부가 도구. T14: 이중 앵커 기각·팬 텔레메트리·점프 GO 재클릭·수면 안정화 폴백 + **DCR-004 재앵커·지연 기록(controller v4) 구현·실기 검증 완료** |
-| **다음 작업** | **전체 스캔 대기 — 사용자 지시 필요**. B안(MuMu) 전환·**다계정 병렬 구현 완료**(DCR-005, 설계 v5). 권장 경로: **2계정 병렬(용스+실버) 20\~27h** — 절차는 아래 B안 섹션 끝(청크 ①② 동시 → merge ③ → 보충·CSV ④). 단일 인스턴스는 38\~52h. 완주 후 NFR-02 최종 판정 → AC-02 최종 재대조. PC 경로(`--hwnd`)도 보존 |
-| 테스트 | `python -m unittest discover -s tests` — **115건** 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
+| **다음 작업** | **전체 스캔 대기 — 사용자 지시 필요**. B안(MuMu) 전환·**다계정 병렬 구현 완료**(DCR-005, 설계 v5). **예약 시작/정지 구현·실증 완료(2026-08-03)** — `scan --until HH:MM` 자기 정지 + `tools/schedule-scan.ps1`(확정값 매일 22:00 시작 → 08:00 정지). 권장 경로: **2계정 병렬(용스+실버) 20\~27h** — 절차는 아래 B안 섹션 끝(청크 ①② 동시 → merge ③ → 보충·CSV ④), 예약 운용이면 `-Register` 한 번으로 ①②를 매일 자동 반복. 단일 인스턴스는 38\~52h. 완주 후 NFR-02 최종 판정 → AC-02 최종 재대조. PC 경로(`--hwnd`)도 보존 |
+| 테스트 | `python -m unittest discover -s tests` — **125건** 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
 | 실기 확정값 | **맵 크기 1619×1619**(자동 감지 성공), 스캔 창 클라이언트 2544×657 |
 | 테스트 클라이언트 | **계정 羊커리** (2026-08-02 기준 hwnd `0x60042`). HWND는 재시작 시 바뀌므로 `mapscan windows --crops <dir>`로 계정명 크롭을 저장해 확인한다 |
 | 커밋 | main 브랜치, origin 푸시 완료 |
@@ -288,6 +288,10 @@ T14.1(기각 튜닝) 원인 규명 중 **추측항법 좌표 드리프트**를 �
 | merge 병합 (실기+단위) | 청크 DB 2개 병합 → 타일 수·맵 검증·체크포인트 + 단위 2건(최신 우선·거부) | **통과** — 3,240+738=3,978 정합, checkpoint 544(재개 시 보충 직행) | `output/par_merged.db` |
 | end_row 청크 (단위) | 상한·멱등 재실행·상한 확장 재개·보충 생략 + 전체 실행 보충 유지 | **전부 통과** ("Ran 115 tests ... OK") | `ChunkRunTest` |
 | **무인 운용** (모니터 off·원격 해제) | `health_check.py`(프레임 생동·NCC) + 행 106 기능 검사 + **RDP 앱 종료(연결 해제) 상태** 행 107\~114 | **통과** — 8행 연속 완주·실패 0(23:39\~23:45 타임스탬프 공백 없음), 세션 전환(rdp-tcp→해제→콘솔 복귀) 구간 포함. 완전 무인 확정 | `output/health_row.log`, `output/rdp_test.log` |
+| `--until` 자기 정지 (단위) | `parse_until` 해석 4건(당일·익일·동시각·형식 오류) + 행 경계 정지·체크포인트 유지·보충 생략·paused/done 전이 6건 | **전부 통과** ("Ran 125 tests ... OK") | `ParseUntilTest`·`UntilDeadlineTest`·`UntilControllerStatusTest` |
+| `--until` 자기 정지 (실기) | 용스 `scan --until <1\~2분 뒤>` 2회(신규 --end-row 102 / 재개 --end-row 106) | **통과** — 데드라인 도달 시 진행 중 행(102)을 완료한 뒤 행 경계에서 정지, `status=paused`·`checkpoint=103` 저장, `latest_resumable_scan` 재개 가능 확인. 1회차는 조기 종료 행이 상한(102)에 먼저 닿아 partial(정상 — 데드라인 미도달) | `output/sched_test.db` |
+| **스케줄 자동 시작** (실기) | `schedule-scan.ps1 -Register`(시작 00:32·정지 00:36 임시값) → 발화 대기 → 로그·DB 검증 → `-Unregister` | **통과** — 2태스크 모두 00:32:00 정각 발화(결과 0x0), 래퍼가 첫 실행 `new` 판별·정확한 인자로 스캔 기동, `--until 00:36` 자기 정지(용스 행 17·실버 행 4 처리 후 paused — 진행 중 행 완료 후 정지로 실버는 00:37:46 종료), 다음 실행 익일 00:32 확인 후 해제. "Logon Mode: Interactive only"(로그온 세션 필수)·일반 권한 등록 확인 | `output/schedule_part1.log`·`part2.log`, schtasks /Query |
+| 스케줄 래퍼 재개 분기·실행 중 로그 열람 | 수동 `-Run -Part 1 -StopTime <2분 뒤>`(위 테스트 DB 재개 상태) + 실행 중 `tail` | **통과** — 래퍼가 `resume` 판별(행 18부터 — 체크포인트 17 이어짐), 행 단위 Add-Content 수정 후 실행 중 로그 열람 정상(수정 전에는 파이프라인 독점 잠금으로 불가 실측) | 동일 로그, 환경 제약 표 신규 행 |
 
 ## 구현 중 확정된 환경 제약 (재발 방지)
 
@@ -299,6 +303,7 @@ T14.1(기각 튜닝) 원인 규명 중 **추측항법 좌표 드리프트**를 �
 | PowerShell 파라미터명 | `-Args`는 자동 변수 `$Args`와 충돌해 값이 비워진다 |
 | git 커밋 메시지 | 본문에 `$`·백틱이 있으면 PowerShell 히어독이 깨진다. 긴 메시지는 `git commit -F <파일>` 사용 |
 | 상주 관리자 실행기 | 러너가 `& powershell -File ... > res` 방식으로 자식을 실행하므로, 자식이 Start-Process로 분리 기동한 스캔도 **파이프 핸들 상속으로 러너를 스캔 종료까지 블록**한다 — 동시 명령(킬 등)은 러너가 아니라 `Invoke-CimMethod Win32_Process Create`로 분리 기동한 워처가 수행해야 한다(AC-03 실증). res_/done_ 파일은 외부 정리로 사라질 수 있어 결과는 `output/` 파일로 남긴다 |
+| PowerShell 스트리밍 로그 | 파이프라인 종단의 `... \| Add-Content <log>`는 **파이프라인이 끝날 때까지 로그 파일을 독점 점유**해 장시간 실행 중 열람·grep이 막힌다(스케줄 스캔 실측). 행 단위 `ForEach-Object { Add-Content ... }`로 열고 닫아야 실행 중 확인이 가능하다 |
 
 ## B안(MuMu 에뮬레이터 전환) 게이트 검토 상태 (2026-08-02 밤, 사용자 문의로 착수)
 
@@ -356,6 +361,23 @@ T14.1(기각 튜닝) 원인 규명 중 **추측항법 좌표 드리프트**를 �
   무해, **로그아웃·시스템 절전·창 최소화만 금지**. 재접속 시 상태 점검은
   `python spikes/s7_mumu/health_check.py`(읽기 전용). RDP 렌더링에서 UI NCC 0.75는
   정상(로컬 0.90). 상세: `spikes/s7_mumu/findings.md` "원격(RDP)" 절.
+- **예약 시작/정지(스케줄 운용) 구현·실증 완료(2026-08-03):** ① `scan --until HH:MM` —
+  행 경계에서 시각을 검사해 도달 시 체크포인트 저장 후 **paused로 종료**(기존 중단
+  경로 재사용 — 진행 중인 행·버퍼는 건드리지 않음). HH:MM이 현재보다 과거면 익일로
+  해석, `--end-row`와 조합 동작, 보충 방문도 방문 경계에서 정지. ② `tools/schedule-scan.ps1`
+  — 작업 스케줄러 파트별 태스크 `-Register`(확정값 매일 22:00 시작·08:00 정지)/
+  `-Unregister`/`-Status`/`-Run`(태스크가 호출하는 실행 래퍼). 태스크는 **로그온 세션
+  필수(Interactive)·일반 권한**(schtasks 실측 "Logon Mode: Interactive only"), 실행 시간
+  상한 = 운용 창 + 1h(매달림 안전망), 중복 발화 무시. 첫 실행(`--new --start-row`)/재개는
+  파트 DB의 재개 가능 스캔 유무로 래퍼가 자동 판별 — 첫 실행이 창 미발견으로 실패해도
+  다음 날 엉뚱한 행에서 새 스캔을 시작하지 않는다. 로그는 `output\schedule_part<N>.log`
+  누적. 청크 완주 후 일일 실행은 0행 처리로 무해하고 **완주 자동 해제는 넣지 않음
+  (사용자 결정 2026-08-03)** — `-Status`가 파트별 완주를 표시하고 해제는 수동.
+  파트 구성(계정·행 범위·DB)·맵 크기는 스크립트 상단 `$Parts` 표에서 수정.
+  **예약 운용 절차:** MuMu 2인스턴스(용스·실버) 실행·게임 접속 확인(`health_check.py`)
+  → `.\tools\schedule-scan.ps1 -Register` → 매일 22:00 자동 시작·08:00 자기 정지·익일
+  재개 반복 → `-Status`로 진행(체크포인트)·완주 확인 → 전 파트 완주 시 `-Unregister`
+  → merge ③ → 보충·CSV ④(아래). 전원 절전 해제·로그아웃 금지는 무인 운용 수칙 그대로.
 - **전체 스캔은 사용자 지시 대기.** 2계정 병렬 절차(`mapscan chunks --accounts 2` 출력):
   ① `scan --mumu 용스 --db output/part1.db --map-size 1619 1619 --new --start-row 0 --end-row 272`
   ② `scan --mumu 실버 --db output/part2.db --map-size 1619 1619 --new --start-row 272 --end-row 544`

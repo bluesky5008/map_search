@@ -125,10 +125,18 @@ def cmd_classify(args) -> int:
 
 def cmd_scan(args) -> int:
     """MODE-A2 행 기반 전체 스캔 (설계 v3 §4.3). 재실행 시 체크포인트에서 재개."""
-    from .controller import ScanController
+    from .controller import ScanController, parse_until
     from .nav import Navigator
     from .store import DataStore, export_csv
 
+    until_ts = None
+    if args.until:
+        try:
+            deadline = parse_until(args.until)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        until_ts = deadline.timestamp()
+        print(f"정지 예정 시각: {deadline:%Y-%m-%d %H:%M} (행 경계에서 정지)")
     store = DataStore(args.db)
     session, input_hwnd, apply_rect = _resolve_target(args)
     print(f"대상: {session.info()}")
@@ -146,10 +154,12 @@ def cmd_scan(args) -> int:
             summary = ctl.run("A2", map_max=map_max,
                               resume=not args.new, max_rows=args.max_rows,
                               start_row=args.start_row, max_pans=args.max_pans,
-                              end_row=args.end_row)
+                              end_row=args.end_row, until=until_ts)
     print(f"스캔 {summary['scan_id']} {summary['status']}: "
           f"{summary['covered']:,}/{summary['total']:,}타일, "
           f"행 {summary['rows']}개(실패 {summary['row_failures']})")
+    if summary["status"] == "paused":
+        print("정지 시각 도달 — 체크포인트 저장됨, 다음 실행에서 재개")
     if args.csv and summary["status"] == "done":
         for path in export_csv(store, summary["scan_id"], args.csv):
             print(f"CSV 저장: {path}")
@@ -266,6 +276,9 @@ def main(argv: list[str] | None = None) -> int:
                            "보충 방문 생략, 병합 후 일괄 보충)")
     scan.add_argument("--max-pans", type=int,
                       help="행당 팬 횟수 상한(점검용 — 잔여는 보충·재개 대상)")
+    scan.add_argument("--until", metavar="HH:MM",
+                      help="이 시각 도달 시 행 경계에서 체크포인트 저장 후 정지"
+                           "(현재보다 과거면 익일로 해석 — 예약 무인 운용)")
     scan.add_argument("--new", action="store_true",
                       help="재개하지 않고 새 스캔 시작")
     scan.add_argument("--settle", type=float, default=2.0)

@@ -1,14 +1,17 @@
 """ScanController/DetailScan — 행 계획 기하와 스캔 루프(가짜 협력자) 검증."""
 
 import tempfile
+import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
 import numpy as np
 
 import mapscan.controller as controller_mod
-from mapscan.controller import C_BAND, DetailScan, Row, ScanController, plan_rows
+from mapscan.controller import (C_BAND, DetailScan, Row, ScanController,
+                                parse_until, plan_rows)
 from mapscan.nav import ui
 from mapscan.store import DataStore, TileRecord
 from mapscan.vision import GridBasis
@@ -355,6 +358,110 @@ class ChunkRunTest(unittest.TestCase):
         self.scanner._supplement = mock.Mock(return_value=3)
         self.scanner.run(self.scan_id, (100, 100))
         self.scanner._supplement.assert_called_once()
+
+
+class ParseUntilTest(unittest.TestCase):
+    """--until HH:MM 해석 — 미래는 당일, 현재 이하는 익일."""
+
+    NOW = datetime(2026, 8, 3, 22, 0)
+
+    def test_future_time_is_today(self):
+        self.assertEqual(parse_until("23:30", self.NOW),
+                         datetime(2026, 8, 3, 23, 30))
+
+    def test_past_time_rolls_to_tomorrow(self):
+        self.assertEqual(parse_until("08:00", self.NOW),
+                         datetime(2026, 8, 4, 8, 0))
+
+    def test_equal_time_rolls_to_tomorrow(self):
+        self.assertEqual(parse_until("22:00", self.NOW),
+                         datetime(2026, 8, 4, 22, 0))
+
+    def test_invalid_format_raises(self):
+        for bad in ("2500", "24:00", "8시", ""):
+            with self.assertRaises(ValueError):
+                parse_until(bad, self.NOW)
+
+
+class UntilDeadlineTest(unittest.TestCase):
+    """--until 자기 정지: 행 경계 검사·체크포인트 유지·보충 생략."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = DataStore(str(Path(self.tmp.name) / "t.db"))
+        self.addCleanup(self.store.close)
+        self.scan_id = self.store.create_scan("A2")
+        self.rows_run: list[int] = []
+        scanner = DetailScan.__new__(DetailScan)
+        scanner.store = self.store
+        scanner._run_row = (
+            lambda scan_id, row, map_max, covered: self.rows_run.append(row.index))
+        scanner._supplement = mock.Mock(
+            side_effect=AssertionError("데드라인 정지 후 보충 방문 금지"))
+        self.scanner = scanner
+
+    def test_expired_deadline_stops_before_next_row(self):
+        self.store.set_checkpoint(self.scan_id, 2)
+        s = self.scanner.run(self.scan_id, (100, 100), end_row=5,
+                             until=time.time() - 1)
+        self.assertEqual(self.rows_run, [])
+        self.assertTrue(s["deadline"])
+        # 체크포인트가 보존돼 다음 실행이 같은 지점에서 재개한다
+        self.assertEqual(self.store.get_scan(self.scan_id)["checkpoint"], 2)
+
+    def test_future_deadline_runs_all_rows(self):
+        s = self.scanner.run(self.scan_id, (100, 100), end_row=3,
+                             until=time.time() + 3600)
+        self.assertEqual(self.rows_run, [0, 1, 2])
+        self.assertFalse(s["deadline"])
+
+    def test_full_run_skips_supplement_after_deadline(self):
+        # setUp의 _supplement mock(AssertionError)이 호출되면 실패한다
+        s = self.scanner.run(self.scan_id, (100, 100), until=time.time() - 1)
+        self.assertTrue(s["deadline"])
+
+    def test_supplement_stops_between_visits(self):
+        scanner = DetailScan.__new__(DetailScan)
+        scanner.store = self.store
+        # 미커버가 있어 방문 계획은 생기지만, 첫 방문 전에 정지해야 한다
+        # (정지가 안 되면 nav 미설정으로 AttributeError가 난다)
+        n = scanner._supplement(self.scan_id, (10, 10),
+                                np.zeros((11, 11), dtype=bool),
+                                until=time.time() - 1)
+        self.assertEqual(n, 0)
+
+
+class UntilControllerStatusTest(unittest.TestCase):
+    """데드라인 정지는 기존 중단 경로(paused)로 저장돼 재개 가능해야 한다."""
+
+    def _run(self, detail_summary):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DataStore(str(Path(tmp) / "t.db"))
+            try:
+                ctl = ScanController(nav=None, store=store)
+                with mock.patch.object(DetailScan, "__init__",
+                                       lambda self, nav, store: None), \
+                     mock.patch.object(DetailScan, "run",
+                                       return_value=detail_summary):
+                    s = ctl.run("A2", map_max=(9, 9), resume=False)
+                return s, store.get_scan(s["scan_id"])["status"]
+            finally:
+                store.close()
+
+    def test_deadline_marks_scan_paused(self):
+        s, db_status = self._run({"rows": 1, "row_failures": 0,
+                                  "covered": 10, "total": 100,
+                                  "deadline": True})
+        self.assertEqual(s["status"], "paused")
+        self.assertEqual(db_status, "paused")
+
+    def test_completion_wins_over_deadline(self):
+        s, db_status = self._run({"rows": 1, "row_failures": 0,
+                                  "covered": 100, "total": 100,
+                                  "deadline": True})
+        self.assertEqual(s["status"], "done")
+        self.assertEqual(db_status, "done")
 
 
 if __name__ == "__main__":
