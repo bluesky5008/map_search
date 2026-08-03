@@ -13,7 +13,7 @@
 | 스파이크 | S-1·S-2 완료. **S-3 완료**(입력란 조작·클램프 감지), **S-4 완료**(팝업은 닫을 수 없음 → 겹침 커버 유지), **S-5 완료·통과**(드래그 팬 실현 가능 — 아래 확정 사실 15\~19, `spikes/s5_drag_pan/findings.md`), **S-6 재측정 완료**(방문 99회 — 광폭 팬 2.95s/68.2타일, 총 33\~36시간, `spikes/s6_remeasure/findings.md`) |
 | 구현 완료 | T8 골격, T10 store, T9 win, T11 vision, T12 nav, **T13 controller/cli**, 부가 도구. T14: 이중 앵커 기각·팬 텔레메트리·점프 GO 재클릭·수면 안정화 폴백 + **DCR-004 재앵커·지연 기록(controller v4) 구현·실기 검증 완료** |
 | **다음 작업** | **전체 스캔 대기 — 사용자 지시 필요**. B안(MuMu) 전환·**다계정 병렬 구현 완료**(DCR-005, 설계 v5). **예약 시작/정지 구현·실증 완료(2026-08-03)** — `scan --until HH:MM` 자기 정지 + `tools/schedule-scan.ps1`(확정값 매일 22:00 시작 → 08:00 정지). 권장 경로: **2계정 병렬(용스+실버) 20\~27h** — 절차는 아래 B안 섹션 끝(청크 ①② 동시 → merge ③ → 보충·CSV ④), 예약 운용이면 `-Register` 한 번으로 ①②를 매일 자동 반복. 단일 인스턴스는 38\~52h. 완주 후 NFR-02 최종 판정 → AC-02 최종 재대조. PC 경로(`--hwnd`)도 보존 |
-| 테스트 | `python -m unittest discover -s tests` — **125건** 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
+| 테스트 | `python -m unittest discover -s tests` — **135건** 전부 통과 (환경 주의: `.venv`에 `pip install -e . --no-deps` 필요) |
 | 실기 확정값 | **맵 크기 1619×1619**(자동 감지 성공), 스캔 창 클라이언트 2544×657 |
 | 테스트 클라이언트 | **계정 羊커리** (2026-08-02 기준 hwnd `0x60042`). HWND는 재시작 시 바뀌므로 `mapscan windows --crops <dir>`로 계정명 크롭을 저장해 확인한다 |
 | 커밋 | main 브랜치, origin 푸시 완료 |
@@ -292,6 +292,9 @@ T14.1(기각 튜닝) 원인 규명 중 **추측항법 좌표 드리프트**를 �
 | `--until` 자기 정지 (실기) | 용스 `scan --until <1\~2분 뒤>` 2회(신규 --end-row 102 / 재개 --end-row 106) | **통과** — 데드라인 도달 시 진행 중 행(102)을 완료한 뒤 행 경계에서 정지, `status=paused`·`checkpoint=103` 저장, `latest_resumable_scan` 재개 가능 확인. 1회차는 조기 종료 행이 상한(102)에 먼저 닿아 partial(정상 — 데드라인 미도달) | `output/sched_test.db` |
 | **스케줄 자동 시작** (실기) | `schedule-scan.ps1 -Register`(시작 00:32·정지 00:36 임시값) → 발화 대기 → 로그·DB 검증 → `-Unregister` | **통과** — 2태스크 모두 00:32:00 정각 발화(결과 0x0), 래퍼가 첫 실행 `new` 판별·정확한 인자로 스캔 기동, `--until 00:36` 자기 정지(용스 행 17·실버 행 4 처리 후 paused — 진행 중 행 완료 후 정지로 실버는 00:37:46 종료), 다음 실행 익일 00:32 확인 후 해제. "Logon Mode: Interactive only"(로그온 세션 필수)·일반 권한 등록 확인 | `output/schedule_part1.log`·`part2.log`, schtasks /Query |
 | 스케줄 래퍼 재개 분기·실행 중 로그 열람 | 수동 `-Run -Part 1 -StopTime <2분 뒤>`(위 테스트 DB 재개 상태) + 실행 중 `tail` | **통과** — 래퍼가 `resume` 판별(행 18부터 — 체크포인트 17 이어짐), 행 단위 Add-Content 수정 후 실행 중 로그 열람 정상(수정 전에는 파이프라인 독점 잠금으로 불가 실측) | 동일 로그, 환경 제약 표 신규 행 |
+| **DCR-006 중단 조건** (단위) | `parse`·캡처 생동 4건(임계 도달·카운트 초기화·정리 실패 2경로) + 컨트롤러 6건(연속 5행 중단·롤백, 고립 실패 전진, 성공 시 카운트 해제, 캡처 정지 즉시 중단, 중단 후 보충 생략, paused/aborted 전이) | **전부 통과** ("Ran 135 tests ... OK") | `tests/test_win_capture.py`, `AbortOnFailureStreakTest`·`AbortControllerStatusTest` |
+| **AC-D1 캡처 정지 중단** (실기) | GPU 리셋 사고 후 MuMu가 얼어 있는 실제 상태에서 `scan --mumu 용스 --start-row 150 --end-row 158` | **통과** — **6초 만에 중단**(구코드는 같은 상태로 3\~4시간 헛돌았다), `status=paused`·`checkpoint=150`(진행 중이던 행)·타일 0, **종료 코드 2**, 사유 메시지 출력 | `output/dcr006_live.log` |
+| MuMu 정지 진단 (실기) | 프레임 도착률 측정(6초) + 10초 간격 두 세션의 첫 프레임 픽셀 비교 + 비-MuMu 창 대조 | **MuMu 자체 정지 확정** — 용스·실버 모두 6초간 새 프레임 0개, 10초 간격 두 프레임이 **픽셀 완전 동일(차이 0)**. 같은 시각 VS Code 창은 3초간 183프레임 → WGC·드라이버는 정상, **MuMu 인스턴스 재시작만으로는 복구되지 않음**(런처 프로세스가 GPU 리셋 이전부터 잔존) | 진단 스크립트 출력, `output/dcr006_probe.png` |
 
 ## 구현 중 확정된 환경 제약 (재발 방지)
 

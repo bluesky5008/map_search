@@ -20,6 +20,16 @@ from . import win32
 log = logging.getLogger(__name__)
 
 BIND_TOLERANCE = 24  # WGC 프레임과 창 외곽 크기의 허용 오차(px)
+STALE_LIMIT = 3      # grab_fresh 연속 시간 초과 허용 횟수 → 초과 시 CaptureStalled
+
+
+class CaptureStalled(RuntimeError):
+    """대상의 렌더링이 멈춰 새 프레임이 오지 않는다 (DCR-006).
+
+    GPU 드라이버 리셋으로 에뮬레이터가 사망했을 때 `grab_fresh`가 낡은 프레임을
+    조용히 돌려주는 바람에 스캔이 3~4시간을 헛돌았다(2026-08-04 사고). 재시도로
+    살아나지 않는 상태이므로 행 단위 복구 대상이 아니다 — 스캔을 중단시킨다.
+    """
 
 
 class WgcCapture:
@@ -33,6 +43,7 @@ class WgcCapture:
         self._ready = threading.Event()
         self._stop = threading.Event()
         self._control = None  # CaptureControl (start_free_threaded)
+        self._stale = 0       # grab_fresh 연속 시간 초과 횟수 (DCR-006)
 
     def start(self, timeout: float = 10.0) -> None:
         # 세션은 반드시 start_free_threaded(러스트 관리 스레드)로 돌린다.
@@ -82,7 +93,12 @@ class WgcCapture:
             return self._frame
 
     def grab_fresh(self, timeout: float = 2.0) -> np.ndarray:
-        """현재 프레임 이후 새로 도착한 프레임을 반환한다."""
+        """현재 프레임 이후 새로 도착한 프레임을 반환한다.
+
+        시간 초과 시 낡은 프레임을 돌려주되 연속 횟수를 세고, `STALE_LIMIT`을
+        넘으면 `CaptureStalled`를 던진다 — 렌더링이 죽은 상태에서 조용히 낡은
+        프레임을 계속 돌려주면 호출자가 정상으로 오인한다(DCR-006).
+        """
         with self._lock:
             previous = self._frame
         deadline = time.monotonic() + timeout
@@ -90,14 +106,32 @@ class WgcCapture:
             with self._lock:
                 current = self._frame
             if current is not None and current is not previous:
+                self._stale = 0
                 return current
             time.sleep(0.01)
+        self._stale += 1
+        if self._stale >= STALE_LIMIT:
+            raise CaptureStalled(
+                f"캡처 프레임 정지 — 새 프레임 없이 {self._stale}회 연속 시간 초과"
+                f"({self._stale * timeout:.0f}s). 대상 창 종료·렌더링 중단"
+                "(GPU 리셋 등)을 확인하세요.")
+        log.warning("캡처 프레임 시간 초과 %.1fs (%d/%d) — 낡은 프레임 사용",
+                    timeout, self._stale, STALE_LIMIT)
         return self.grab()
 
     def stop(self) -> None:
+        """세션을 정리한다. 정리 실패는 삼킨다 — 이미 끝내는 중이다.
+
+        대상 창이 사라지거나 GPU가 제거된 상태에서 세션을 멈추면 백엔드가
+        예외를 던진다(2026-08-04 사고: `DXGI_ERROR_DEVICE_REMOVED`). 그 예외가
+        스캔 종료 경로를 덮어 정상 중단(종료 코드 2)이 크래시로 둔갑했다.
+        """
         self._stop.set()
         if self._control is not None:
-            self._control.stop()
+            try:
+                self._control.stop()
+            except Exception as exc:
+                log.warning("캡처 세션 정리 실패(무시): %s", exc)
 
     def __enter__(self) -> "WgcCapture":
         self.start()

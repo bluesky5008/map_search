@@ -164,6 +164,13 @@ def cmd_scan(args) -> int:
         for path in export_csv(store, summary["scan_id"], args.csv):
             print(f"CSV 저장: {path}")
     store.close()
+    if summary["status"] == "aborted":
+        # 종료 코드 2 = 계통적 고장으로 중단(DCR-006). 스케줄 태스크의 결과
+        # 코드와 래퍼 로그에 비정상이 드러나야 무인 운용에서 인지된다.
+        print(f"스캔 중단: {summary['aborted']}\n"
+              "  대상 클라이언트(에뮬레이터·게임) 상태를 확인하세요. "
+              "체크포인트는 재시도 지점으로 저장됐습니다.")
+        return 2
     return 0
 
 

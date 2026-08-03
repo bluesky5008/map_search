@@ -176,6 +176,8 @@ x,y,category,kind,level,occupancy,center_x,center_y,center_estimated,confidence,
 - 청크 완주 후의 일일 실행은 0행 처리로 무해합니다. 해제는 수동이며 `-Status`가 파트별 완주를 표시합니다.
 - 실행 로그는 `output\schedule_part<N>.log`에 누적됩니다. 전 파트 완주 후 `merge` → 보충·CSV 절차는 위 다계정 병렬 안내와 같습니다.
 
+**고장 감지(DCR-006).** 대상이 사라지거나 렌더링이 멈추면(에뮬레이터 사망·GPU 드라이버 리셋 등) 스캔이 **6초 안에** 스스로 중단하고, 연속 5행이 실패해도 중단합니다. 중단 시 체크포인트는 **재시도 지점으로 되돌아가며**(실패한 행을 완주로 위장하지 않음) 스캔 상태는 재개 가능한 `paused`로 남습니다. 종료 코드는 **2**이므로 `-Status`의 "마지막 결과"와 래퍼 로그에 비정상이 드러납니다. 이 경우 MuMu·게임 상태를 먼저 확인하세요 — GPU 리셋 후에는 인스턴스만 재시작해서는 복구되지 않고 MuMu 전체 재기동이 필요할 수 있습니다.
+
 ### 실기 검증 (스파이크)
 
 ```powershell
@@ -186,7 +188,7 @@ powershell -ExecutionPolicy Bypass -File spikes\s3_nav_ui\run_live.ps1 -Hwnd 0x6
 ### 테스트
 
 ```powershell
-.venv\Scripts\python -m unittest discover -s tests   # 현재 125건
+.venv\Scripts\python -m unittest discover -s tests   # 현재 135건
 ```
 
 ## 프로젝트 구조

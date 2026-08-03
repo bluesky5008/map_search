@@ -12,10 +12,11 @@ import numpy as np
 import mapscan.controller as controller_mod
 from mapscan.controller import (C_BAND, DetailScan, Row, ScanController,
                                 parse_until, plan_rows)
-from mapscan.nav import ui
+from mapscan.nav import NotInMapMode, ui
 from mapscan.store import DataStore, TileRecord
 from mapscan.vision import GridBasis
 from mapscan.vision.grid import GridMapper
+from mapscan.win import CaptureStalled
 
 
 class PlanRowsTest(unittest.TestCase):
@@ -430,6 +431,100 @@ class UntilDeadlineTest(unittest.TestCase):
                                 np.zeros((11, 11), dtype=bool),
                                 until=time.time() - 1)
         self.assertEqual(n, 0)
+
+
+class AbortOnFailureStreakTest(unittest.TestCase):
+    """연속 행 실패·캡처 정지 중단과 체크포인트 무결성 (DCR-006 / AC-D2·D3)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = DataStore(str(Path(self.tmp.name) / "t.db"))
+        self.addCleanup(self.store.close)
+        self.scan_id = self.store.create_scan("A2")
+        self.scanner = DetailScan.__new__(DetailScan)
+        self.scanner.store = self.store
+        self.scanner._supplement = mock.Mock(
+            side_effect=AssertionError("중단 후 보충 방문 금지"))
+
+    def _fail_rows(self, failing):
+        """failing에 든 행 인덱스에서만 실패하는 _run_row를 심는다."""
+        self.ran = []
+
+        def run_row(scan_id, row, map_max, covered):
+            self.ran.append(row.index)
+            if row.index in failing:
+                raise NotInMapMode(f"행 {row.index} 강제 실패")
+
+        self.scanner._run_row = run_row
+
+    def _checkpoint(self):
+        return self.store.get_scan(self.scan_id)["checkpoint"]
+
+    def test_streak_aborts_and_rewinds_checkpoint(self):
+        self._fail_rows(set(range(2, 20)))   # 행 2부터 계속 실패
+        s = self.scanner.run(self.scan_id, (100, 100), end_row=30)
+        self.assertEqual(self.ran, [0, 1, 2, 3, 4, 5, 6])   # 5연속에서 중단
+        self.assertIsNotNone(s["aborted"])
+        # 체크포인트가 연속 실패 시작 행(2)으로 되돌아가 다음 실행이 재시도한다
+        self.assertEqual(self._checkpoint(), 2)
+        self.assertEqual(s["row_failures"], 5)
+
+    def test_isolated_failures_do_not_abort(self):
+        # 고립 실패는 기존 동작 유지 — 체크포인트 전진(보충 방문 몫)
+        self._fail_rows({1, 3, 5, 7, 9})
+        s = self.scanner.run(self.scan_id, (100, 100), end_row=11)
+        self.assertEqual(self.ran, list(range(11)))
+        self.assertIsNone(s["aborted"])
+        self.assertEqual(self._checkpoint(), 11)
+        self.assertEqual(s["row_failures"], 5)
+
+    def test_streak_resets_after_success(self):
+        # 4연속 실패 후 성공하면 카운트가 풀려 중단되지 않는다
+        self._fail_rows({0, 1, 2, 3, 5, 6, 7, 8})
+        s = self.scanner.run(self.scan_id, (100, 100), end_row=10)
+        self.assertEqual(self.ran, list(range(10)))
+        self.assertIsNone(s["aborted"])
+        self.assertEqual(self._checkpoint(), 10)
+
+    def test_capture_stalled_aborts_immediately(self):
+        def run_row(scan_id, row, map_max, covered):
+            if row.index == 3:
+                raise CaptureStalled("프레임 정지")
+        self.scanner._run_row = run_row
+        s = self.scanner.run(self.scan_id, (100, 100), end_row=30)
+        self.assertIn("프레임 정지", s["aborted"])
+        # 진행 중이던 행부터 다시 하도록 체크포인트를 남긴다
+        self.assertEqual(self._checkpoint(), 3)
+        self.assertEqual(s["rows"], 3)
+
+    def test_full_run_skips_supplement_after_abort(self):
+        # setUp의 _supplement mock(AssertionError)이 호출되면 실패한다
+        self._fail_rows(set(range(0, 20)))
+        s = self.scanner.run(self.scan_id, (100, 100))
+        self.assertIsNotNone(s["aborted"])
+
+
+class AbortControllerStatusTest(unittest.TestCase):
+    """중단 스캔은 재개 가능한 paused로 저장되고 status=aborted로 보고된다."""
+
+    def test_aborted_scan_is_paused_and_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = DataStore(str(Path(tmp) / "t.db"))
+            try:
+                ctl = ScanController(nav=None, store=store)
+                summary = {"rows": 5, "row_failures": 5, "covered": 0,
+                           "total": 100, "deadline": False,
+                           "aborted": "연속 5행 실패"}
+                with mock.patch.object(DetailScan, "__init__",
+                                       lambda self, nav, store: None), \
+                     mock.patch.object(DetailScan, "run", return_value=summary):
+                    s = ctl.run("A2", map_max=(9, 9), resume=False)
+                self.assertEqual(s["status"], "aborted")
+                self.assertEqual(
+                    store.get_scan(s["scan_id"])["status"], "paused")
+            finally:
+                store.close()
 
 
 class UntilControllerStatusTest(unittest.TestCase):

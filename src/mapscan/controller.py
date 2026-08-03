@@ -34,12 +34,17 @@ from .store import DataStore, TileRecord
 from .vision import DigitReader, TileClassifier
 from .vision.grid import GridMapper, _cell_intersects_rect, find_selection_highlight
 from .watchdog import Watchdog, WatchdogAlert
+from .win import CaptureStalled
 
 log = logging.getLogger(__name__)
 
 C_BAND = ui.BAND_Y[1] - ui.BAND_Y[0]   # 행이 담당하는 c 구간 = 분류 대역 높이(px)
 _EDGE_MARGIN = 15        # 뷰 중심이 맵 경계에 이만큼 접근하면 행 종료(잔여는 보충)
 _ROW_RETRIES = 2
+# 연속 행 실패 상한 (DCR-006). 실측: 정상 운용의 연속 실패 최대 1회(고립)인 반면
+# 2026-08-04 GPU 리셋 사고에서는 161·219회 연속. 5는 정상 최대의 5배 여유이면서
+# 사고를 약 5분 만에 잡는다. 고립 실패는 기존대로 보충 방문 몫으로 넘긴다.
+_MAX_ROW_FAILURE_STREAK = 5
 _MAX_PANS_PER_ROW = 200  # 폭주 방지 상한(1619² 대각 행도 ~120팬이면 끝난다)
 
 # ---- 재앵커 (DCR-004) ------------------------------------------------------
@@ -158,8 +163,10 @@ class DetailScan:
         if max_rows is not None:
             todo = todo[:max_rows]
         t0 = time.monotonic()
-        done = failed = 0
+        done = failed = streak = 0
         deadline_hit = False
+        aborted: str | None = None
+        streak_start = 0
         for row in todo:
             # 시각 기반 자기 정지: 행 경계에서만 검사한다 — 진행 중인 행의
             # 버퍼·체크포인트 상태를 건드리지 않아 기존 재개 경로가 그대로 쓰인다.
@@ -170,12 +177,33 @@ class DetailScan:
                 break
             try:
                 self._run_row(scan_id, row, map_max, covered)
+                streak = 0
+            except CaptureStalled as exc:
+                # 렌더링이 멈춘 상태 — 재시도로 살아나지 않으므로 즉시 중단하고
+                # 진행 중이던 행부터 다시 하도록 체크포인트를 남긴다(DCR-006)
+                aborted = str(exc)
+                self.store.set_checkpoint(scan_id, row.index)
+                log.error("행 %d에서 캡처 정지 — 스캔 중단(체크포인트 %d 유지): %s",
+                          row.index, row.index, exc)
+                break
             except (NotDetailView, NotInMapMode, StabilizeTimeout,
                     TrackLost, WatchdogAlert) as exc:
                 failed += 1
-                log.warning("행 %d 실패(보충 대상으로 남김): %s", row.index, exc)
+                if streak == 0:
+                    streak_start = row.index
+                streak += 1
+                log.warning("행 %d 실패(보충 대상으로 남김, 연속 %d회): %s",
+                            row.index, streak, exc)
             done += 1
             self.store.set_checkpoint(scan_id, row.index + 1)
+            if streak >= _MAX_ROW_FAILURE_STREAK:
+                # 계통적 고장(대상 사망·접속 끊김 등)으로 판단. 실패 행들은 다음
+                # 실행이 다시 시도하도록 체크포인트를 연속 실패 시작점으로 되돌린다
+                aborted = (f"연속 {streak}행 실패 — 행 {streak_start}부터 재시도 대상")
+                self.store.set_checkpoint(scan_id, streak_start)
+                log.error("연속 %d행 실패 — 스캔 중단(체크포인트 %d로 되돌림)",
+                          streak, streak_start)
+                break
             elapsed = time.monotonic() - t0
             eta = elapsed / done * (len(todo) - done)
             log.info("진행 %d/%d행 (커버 %s타일, 경과 %.0fs, ETA %.0f분)",
@@ -185,13 +213,19 @@ class DetailScan:
                    "total": (map_max[0] + 1) * (map_max[1] + 1)}
         # 보충 방문은 전체 실행에서만 — 부분(max_rows)·청크(end_row) 실행이
         # 전 맵의 미커버를 보충하려 들면 안 된다(청크 밖은 다른 계정 몫).
-        if max_rows is None and end_row is None and not deadline_hit:
-            summary["supplemented"] = self._supplement(scan_id, map_max, covered,
-                                                       until=until)
+        if (max_rows is None and end_row is None
+                and not deadline_hit and aborted is None):
+            try:
+                summary["supplemented"] = self._supplement(
+                    scan_id, map_max, covered, until=until)
+            except CaptureStalled as exc:
+                aborted = str(exc)
+                log.error("보충 방문 중 캡처 정지 — 스캔 중단: %s", exc)
             summary["covered"] = int(covered.sum())
             if until is not None and time.time() >= until:
                 deadline_hit = True
         summary["deadline"] = deadline_hit
+        summary["aborted"] = aborted
         return summary
 
     # -- 행 하나 ------------------------------------------------------------
@@ -603,7 +637,13 @@ class ScanController:
         full_run = max_rows is None and end_row is None
         complete = summary["covered"] >= summary["total"]
         summary["scan_id"] = scan_id
-        if full_run and complete:
+        if summary.get("aborted"):
+            # 계통적 고장으로 중단 — 재개 가능한 paused로 남긴다(DCR-006).
+            # 체크포인트는 DetailScan이 재시도 지점으로 되돌려 두었다.
+            self.store.finish_scan(scan_id, status="paused")
+            log.error("스캔 중단: %s", summary["aborted"])
+            summary["status"] = "aborted"
+        elif full_run and complete:
             self.store.finish_scan(scan_id, status="done")
             summary["status"] = "done"
         elif summary.get("deadline"):

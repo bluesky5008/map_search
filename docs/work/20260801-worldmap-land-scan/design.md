@@ -1,8 +1,8 @@
 # SW 설계 — 월드맵 토지정보 추출기
 
 - 작업 ID: 20260801-worldmap-land-scan
-- 기준선: **v5 (승인됨)** — 승인일 2026-08-02 ([DCR-005](changes/DCR-005-mumu-execution-target.md): 실행 대상 MuMu 전환 + 다계정 병렬. 이전: v4 [DCR-004](changes/DCR-004-reanchor-coordinate-integrity.md), v3 [DCR-003](changes/DCR-003-nfr02-final-pan-design.md), v2 [DCR-001](changes/DCR-001-mode-a-zoom-limits.md))
-- 대상 요구사항: [requirements.md](requirements.md) v3
+- 기준선: **v6 (승인됨)** — 승인일 2026-08-04 ([DCR-006](changes/DCR-006-unattended-abort-conditions.md): 무인 스캔 정지 조건 — 캡처 생동 감지·연속 행 실패 중단·체크포인트 무결성. 이전: v5 [DCR-005](changes/DCR-005-mumu-execution-target.md), v4 [DCR-004](changes/DCR-004-reanchor-coordinate-integrity.md), v3 [DCR-003](changes/DCR-003-nfr02-final-pan-design.md), v2 [DCR-001](changes/DCR-001-mode-a-zoom-limits.md))
+- 대상 요구사항: [requirements.md](requirements.md) v4
 - 작성일: 2026-08-01 / 최종 갱신: 2026-08-02 (DCR-005 MuMu 적응·S-7 실측 반영)
 - 구현 실측으로 **수단**이 바뀐 항목은 [design-change-log.md](design-change-log.md)의 "경미한 변경" 표에 이유와 함께 기록했다. 아래 본문은 그 결과를 반영한 상태다.
 
@@ -41,9 +41,9 @@
 | 컴포넌트 | 책임 | 주요 의존 |
 |---|---|---|
 | CLI/Config | 모드·출력 경로·옵션 파싱, 설정 파일(캘리브레이션 값) 로드 | — |
-| ScanController | 스캔 수명주기(시작/재개/정지), 모드 전략 실행, 체크포인트 갱신, 진행률 보고 | 모든 서비스 |
+| ScanController | 스캔 수명주기(시작/재개/정지), 모드 전략 실행, 체크포인트 갱신, 진행률 보고, **계통적 고장 시 중단 판단**(연속 행 실패 상한·캡처 정지 — DCR-006) | 모든 서비스 |
 | WindowSession | 대상 창 탐색(제목 + HWND 확정), 관리자 권한 점검, **스캔 창 크기 설정·종료 시 복원**(FR-12, ADR-005), 실제 클라이언트 크기 측정, 시작 시 캡처·입력 프로브 | Win32 |
-| Capturer (ICapture) | 창 이미지 획득. `WgcCapture`(**HWND 직접 바인딩** — `window_hwnd`. 제목 매칭은 같은 크기의 다른 창을 조용히 잡는다, T12 실측). 세션은 **start_free_threaded(러스트 관리 스레드)로 구동** — 파이썬 스레드의 blocking start는 세션 생존 동안 프로세스 CPU 작업을 4\~5배 저하시킨다(T14 실측, plan.md 사실 47) / `BitBltCapture`(전면 폴백) | WindowSession |
+| Capturer (ICapture) | 창 이미지 획득. `WgcCapture`(**HWND 직접 바인딩** — `window_hwnd`. 제목 매칭은 같은 크기의 다른 창을 조용히 잡는다, T12 실측). 세션은 **start_free_threaded(러스트 관리 스레드)로 구동** — 파이썬 스레드의 blocking start는 세션 생존 동안 프로세스 CPU 작업을 4\~5배 저하시킨다(T14 실측, plan.md 사실 47) / `BitBltCapture`(전면 폴백). **프레임 생동 계약(DCR-006):** `grab_fresh`는 새 프레임 없이 시간 초과가 연속 `STALE_LIMIT`(3회 ≈ 6초)에 이르면 `CaptureStalled`를 던진다 — 낡은 프레임을 조용히 돌려주면 호출자가 정상으로 오인한다. 세션 정리(`stop`) 실패는 삼킨다(대상 소멸·GPU 제거 시 백엔드가 던지는 예외가 종료 경로를 덮지 않도록) | WindowSession |
 | InputDriver (IInput) | 클릭·더블클릭·드래그·가상 키·텍스트 입력·휠. `PostMessageInput`(백그라운드, 기본) / `SendInput`(전면 폴백) | WindowSession |
 | Navigator | 지도 모드 진입·**상태 검증**, 좌표 입력·이동(점프 = 행 시작 재앵커), **드래그 팬(행 내 주 이동, DCR-003)**, 이동 후 화면 안정화 대기(연속 프레임 diff), 맵 크기 감지(클램프 렌더링 이미지 비교, [ADR-006](decisions/ADR-006-map-size-detection.md)). **지도 UI 클릭 전에는 지도 모드 마커**, **팬·디테일 뷰 조작 전에는 디테일 뷰 시그니처(계정 HUD)**를 확인하고 불일치 시 중단한다 — 점프 완료 후 게임은 지도 UI를 닫고 디테일 뷰로 복귀한다(S-5) | InputDriver, Capturer |
 | GridMapper | 화면 픽셀 ↔ 맵 좌표 변환(**일반 평행사변형 격자**, 기저 `E_MX`/`E_MY`). 앵커는 점프 후 대상 타일이 놓이는 **고정 화면 위치**. 가시 셀 열거 시 오클루전 사각형과의 교차를 분리축 정리로 판정. ⚠ **기저는 국소값**(지면이 원근 틸트로 렌더링, S-5)이며 **y-성분은 맵 지역 의존**(u-스텝당 \~2.5px, T14 실측) — 셀 좌표 계산은 앵커 y 근방 대역으로 한정하고, 행 이동 누적 오차는 주기 재앵커로 지운다(DCR-004) | 캘리브레이션 설정(`nav/ui.py`) |
@@ -166,6 +166,12 @@ for row in planner.resume_from(checkpoint):
 | 창 소실·크기 변경 | 즉시 정지, 체크포인트 보존, 재실행 시 재개 안내 |
 | 분류 신뢰도 미달 | `미상` 기록 + 셀 이미지를 `evidence/`에 저장(사후 템플릿 보강용) |
 | 백그라운드 동작 이상(검은 프레임 등) | 프로브 재실행 → 전면 폴백 확인 요청 |
+| **캡처 프레임 정지**(대상 소멸·렌더링 중단·GPU 리셋) — DCR-006 | `CaptureStalled`(연속 3회 시간 초과 ≈ 6초). **행 단위 재시도 대상이 아니다** — 즉시 스캔 중단, 체크포인트는 진행 중이던 행으로 남긴다 |
+| **연속 행 실패**(계통적 고장 — 접속 끊김·모달 등) — DCR-006 | 연속 `_MAX_ROW_FAILURE_STREAK`(5)행 실패 시 스캔 중단하고 **체크포인트를 연속 실패 시작 행으로 되돌린다**(다음 실행이 재시도). 고립 실패는 기존대로 전진시켜 보충 방문에 맡긴다 — 영구 불량 행 하나가 스캔을 영원히 막지 않게 하기 위함 |
+
+중단(`aborted`)은 재개 가능한 `paused` 상태로 저장하고, CLI는 사유를 출력하며
+**종료 코드 2**를 반환한다(정상 0, 예기치 못한 예외 1). 무인 운용에서 스케줄
+태스크의 결과 코드와 래퍼 로그에 비정상이 드러나야 인지된다.
 
 ### 4.5 완료 처리
 
